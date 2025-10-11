@@ -37,13 +37,13 @@ on:
         value: ${{ jobs.build_image.outputs.full_image_tag }}
 
 jobs:
-  build_image:
-    strategy:
-      matrix:
-        runner: ["ubuntu-latest", "blacksmith-4vcpu-ubuntu-2404"]
-      fail-fast: false  # Permite que los jobs continúen incluso si uno falla
-    
-    runs-on: ${{ matrix.runner }}
+ # build_image:
+ #   strategy:
+ #     matrix:
+ #       runner: ["ubuntu-latest", "blacksmith-4vcpu-ubuntu-2404"]
+ #     fail-fast: false  # Permite que los jobs continúen incluso si uno falla
+ #   
+ #   runs-on: ${{ matrix.runner }}
 
     # Se usa 'id' para poder referenciar los outputs de este job más adelante.
     outputs:
