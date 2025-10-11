@@ -1,16 +1,28 @@
-name: Simple Date Workflow
+name: Reusable Date Workflow
 
 on:
-  push:
-    branches: [main]
-  pull_request:
-    branches: [main]
-  workflow_dispatch:
+  workflow_call:
+    inputs:
+      timezone:
+        description: 'Timezone for date (e.g., Europe/Madrid)'
+        required: false
+        type: string
+        default: 'UTC'
+    outputs:
+      current_date:
+        description: 'The current date'
+        value: ${{ jobs.show-date.outputs.date }}
 
 jobs:
   show-date:
     runs-on: ubuntu-latest
+    outputs:
+      date: ${{ steps.get-date.outputs.date }}
     
     steps:
       - name: Show current date
-        run: date
+        id: get-date
+        run: |
+          echo "Showing date in timezone: ${{ inputs.timezone }}"
+          TZ='${{ inputs.timezone }}' date
+          echo "date=$(TZ='${{ inputs.timezone }}' date '+%Y-%m-%d %H:%M:%S')" >> $GITHUB_OUTPUT
