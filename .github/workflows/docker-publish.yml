@@ -1,18 +1,87 @@
-name: Docker Image CI
+name: Build Docker Image Reusable
 
 on:
-  push:
-    branches: [ "main" ]
-  pull_request:
-    branches: [ "main" ]
+  # El trigger 'workflow_call' es lo que hace que este workflow sea reutilizable.
+  # Permite que otros workflows lo invoquen.
+  workflow_call:
+    # Definimos los 'inputs' que este workflow espera recibir cuando es llamado.
+    inputs:
+      image-name:
+        description: 'Nombre de la imagen Docker a construir (ej. my-app-image)'
+        required: true
+        type: string
+      dockerfile-path:
+        description: 'Ruta al Dockerfile dentro del repositorio (ej. ./Dockerfile o ./app/Dockerfile)'
+        required: false # Puedes hacerlo opcional y proporcionar un valor por defecto
+        type: string
+        default: './Dockerfile' # Valor por defecto si no se especifica
+      context-path:
+        description: 'Ruta al contexto de construcción de Docker (donde se encuentran los archivos para el build)'
+        required: false
+        type: string
+        default: '.' # Por defecto, el directorio raíz del repositorio
+      registry-username:
+        description: 'Nombre de usuario para el registro de Docker (ej. Docker Hub, GHCR)'
+        required: true
+        type: string
+
+    secrets:
+      REGISTRY_TOKEN:
+        description: 'Token o contraseña para el registro de Docker'
+        required: true
+
+    # Definimos los 'outputs' que este workflow puede devolver al workflow que lo invocó.
+    outputs:
+      image-tag:
+        description: 'El tag completo de la imagen Docker construida'
+        value: ${{ jobs.build_image.outputs.full_image_tag }}
 
 jobs:
+  build_image:
+    strategy:
+      matrix:
+        runner: ["ubuntu-latest", "blacksmith-4vcpu-ubuntu-2404"]
+      fail-fast: false  # Permite que los jobs continúen incluso si uno falla
+    
+    runs-on: ${{ matrix.runner }}
 
-  build:
-
-    runs-on: ubuntu-latest
+    # Se usa 'id' para poder referenciar los outputs de este job más adelante.
+    outputs:
+      full_image_tag: ${{ steps.vars.outputs.full_image_tag }}
 
     steps:
-    - uses: actions/checkout@v4
-    - name: Build the Docker image
-      run: date
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to Docker Registry
+        uses: docker/login-action@v3
+        with:
+          username: ${{ inputs.registry-username }}
+          password: ${{ secrets.REGISTRY_TOKEN }}
+
+      - name: Get current date for image tag
+        id: date
+        run: echo "DATE=$(date +'%Y%m%d%H%M%S')" >> $GITHUB_OUTPUT
+
+      - name: Build and push Docker image
+        id: build_and_push
+        uses: docker/build-push-action@v5
+        with:
+          context: ${{ inputs.context-path }}
+          file: ${{ inputs.dockerfile-path }}
+          push: true
+          tags: |
+            pablokbs/${{ inputs.image-name }}:latest
+            pablokbs/${{ inputs.image-name }}:${{ github.sha }}
+            pablokbs/${{ inputs.image-name }}:${{ steps.date.outputs.DATE }}
+          outputs: |
+            type=image,name=pablokbs/${{ inputs.image-name }},name-canonical=true,push=true
+
+      - name: Set output variables
+        id: vars
+        run: |
+          echo "full_image_tag=pablokbs/${{ inputs.image-name }}:latest" >> $GITHUB_OUTPUT
+          echo "image_digest=${{ steps.build_and_push.outputs.digest }}" >> $GITHUB_OUTPUT
