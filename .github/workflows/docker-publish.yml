@@ -1,47 +1,16 @@
-name: Show Current Time
+name: Simple Date Workflow
 
 on:
-  workflow_call:
-    inputs:
-      timezone:
-        description: 'Timezone for the time display (e.g., Europe/Madrid, America/New_York)'
-        required: false
-        type: string
-        default: 'UTC'
-    outputs:
-      current-time:
-        description: 'The current time'
-        value: ${{ jobs.show-time.outputs.time }}
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
 
 jobs:
-  show-time:
+  show-date:
     runs-on: ubuntu-latest
-    outputs:
-      time: ${{ steps.get-time.outputs.time }}
     
     steps:
-      - name: Get Current Time
-        id: get-time
-        run: |
-          # Set timezone if provided
-          if [ "${{ inputs.timezone }}" != "UTC" ]; then
-            export TZ="${{ inputs.timezone }}"
-          fi
-          
-          # Get current time
-          CURRENT_TIME=$(date '+%Y-%m-%d %H:%M:%S %Z')
-          echo "time=$CURRENT_TIME" >> $GITHUB_OUTPUT
-          
-          # Display in workflow logs
-          echo "⏰ Current time: $CURRENT_TIME"
-          echo "🌍 Timezone: ${{ inputs.timezone }}"
-      
-      - name: Display Time Info
-        run: |
-          echo "================================"
-          echo "     TIME INFORMATION"
-          echo "================================"
-          echo "Time: ${{ steps.get-time.outputs.time }}"
-          echo "Timezone: ${{ inputs.timezone }}"
-          echo "================================"
-    
+      - name: Show current date
+        run: date
