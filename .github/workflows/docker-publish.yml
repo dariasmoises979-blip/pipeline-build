@@ -48,7 +48,7 @@ jobs:
         uses: actions/checkout@v4
         with:
             repository: dariasmoises979-blip/app
-            ref: main   # o master, según el nombre de la rama
+            ref: main   # ⚠️ O usa 'master' si esa es la rama principal
             path: pipeline-build
             fetch-depth: 1
   
