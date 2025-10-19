@@ -1,0 +1,34 @@
+name: Reusable Date Workflow
+
+on:
+  workflow_call:
+    inputs:
+      timezone:
+        description: 'Timezone for date (e.g., Europe/Madrid)'
+        required: false
+        type: string
+        default: 'UTC'
+    outputs:
+      current_date:
+        description: 'The current date'
+        value: ${{ jobs.show-date.outputs.date }}
+
+jobs:
+  build-test:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout del código
+        uses: actions/checkout@v4
+
+      - name: Configurar Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Instalar dependencias
+        run: |
+          pip install flask pytest
+
+      - name: Ejecutar tests
+        run: pytest -v
+
