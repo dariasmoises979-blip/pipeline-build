@@ -34,19 +34,6 @@ jobs:
       - name: Ejecutar tests
         run: pytest -v
 
-  checkout:
-    runs-on: ubuntu-latest
-    steps:
-      - name: Checkout del código
-        uses: actions/checkout@v4
-
-      - name: Mostrar archivos
-        run: ls -la
-
-      - name: Ejecutar checkout 
-        run: echo "Checkout ejecutado correctamente"
-    needs: build-test
-
   sonarcloud:
     runs-on: ubuntu-latest
     steps:
@@ -55,7 +42,7 @@ jobs:
 
       - name: Ejecutar análisis de SonarCloud
         run: echo "Análisis de SonarCloud ejecutado correctamente"
-    needs: checkout
+    needs: build-test
 
   qa:
     runs-on: ubuntu-latest
