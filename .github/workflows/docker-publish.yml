@@ -34,11 +34,9 @@ jobs:
       - name: Ejecutar tests
         run: pytest -v
 
-        
   docker:
     needs: build-test
     runs-on: ubuntu-latest
-    
     steps:
       - name: Checkout del código principal
         uses: actions/checkout@v4
@@ -63,12 +61,7 @@ jobs:
             username: ${{ inputs.dockerhub_username }}
             password: ${{ secrets.DOCKERHUB_TOKEN }}
             logout: true
-
-      - name: Checkout repository
-        uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
-          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+      
 
       - name: Construir y publicar imagen (con cache y tag dinámico)
         uses: docker/build-push-action@v6
