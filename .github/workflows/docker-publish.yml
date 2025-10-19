@@ -46,6 +46,10 @@ jobs:
                 path: app/local
                 token: ${{ secrets.GITHUB_TOKEN }} # suficiente si el repo es tuyo
 
+            - name: Ver contenido del otro repo
+              run: |
+                  echo "Contenido de otro-repo:"
+                  ls -la
 
             - name: Login en Docker Hub
               uses: docker/login-action@v3
