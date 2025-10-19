@@ -40,11 +40,15 @@ jobs:
     steps:
       - name: Checkout del código principal
         uses: actions/checkout@v4
- 
-      - name: Clona el repositorio de pipeline-build
+        with:
+          fetch-depth: 0
+          path: main
+
+      - name: Clonar el repo pipeline-build
         uses: actions/checkout@v4
         with:
-            repository: dariasmoises979-blip/app
+          repository: dariasmoises979-blip/app
+          path: app
             
       - name: Mostrar archivos del repositorio clonado
         run: ls -la
@@ -68,6 +72,13 @@ jobs:
             password: ${{ secrets.DOCKERHUB_TOKEN }}
             logout: true
       
+      - name: Checkout completo para PR
+        if: ${{ github.event_name == 'pull_request' }}
+        uses: actions/checkout@v4
+        with:
+          ref: refs/pull/${{ github.event.pull_request.number }}/merge
+          fetch-depth: 0
+      
       - name: Set image tag
         id: vars
         run: |
@@ -81,7 +92,7 @@ jobs:
         uses: docker/build-push-action@v6
         with:
            # Ruta donde están el Dockerfile y los archivos necesarios
-           # context: ./local
+          context: main
 
            # (opcional) Si el Dockerfile no está en la raíz del contexto
           file: ./local/Dockerfile
