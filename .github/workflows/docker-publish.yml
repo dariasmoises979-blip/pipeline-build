@@ -46,6 +46,9 @@ jobs:
         with:
             repository: dariasmoises979-blip/app
             
+      - name: Mostrar archivos del repositorio clonado
+        run: ls -la
+
 
       - name: Configurar Docker Buildx
         uses: docker/setup-buildx-action@v3
