@@ -44,11 +44,14 @@ jobs:
           fetch-depth: 0
           path: main
 
-      - name: Clonar el repo pipeline-build
+      - name: Clonar el repositorio pipeline-build
         uses: actions/checkout@v4
         with:
-          repository: dariasmoises979-blip/app
-          path: app
+            repository: dariasmoises979-blip/app
+            ref: main   # o master, según el nombre de la rama
+            path: pipeline-build
+            fetch-depth: 1
+  
             
       - name: Mostrar archivos del repositorio clonado
         run: ls -la
