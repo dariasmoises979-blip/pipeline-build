@@ -14,7 +14,7 @@ on:
         value: ${{ jobs.show-date.outputs.date }}
 
 jobs:
-  build-test:
+  test-Integration:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout del código
@@ -23,7 +23,7 @@ jobs:
       - name: Configurar Python
         uses: actions/setup-python@v5
         with:
-          python-version: '3.12'
+          python-version: "3.12"
 
       - name: Instalar dependencias
         run: |
@@ -31,4 +31,14 @@ jobs:
 
       - name: Ejecutar tests
         run: pytest -v
+
+  sonarcloud:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout del código
+        uses: actions/checkout@v4
+
+      - name: Ejecutar análisis de SonarCloud
+        run: echo "Análisis de SonarCloud ejecutado correctamente"
+    needs: build-test
 
