@@ -38,7 +38,15 @@ jobs:
           steps:
             - name: Checkout del código
               uses: actions/checkout@v4
-      
+  
+            - name: Checkout otro repositorio
+              uses: actions/checkout@v4
+              with:
+                repository: dariasmoises979-blip/app
+                path: app/local
+                token: ${{ secrets.GITHUB_TOKEN }} # suficiente si el repo es tuyo
+
+
             - name: Login en Docker Hub
               uses: docker/login-action@v3
               with:
