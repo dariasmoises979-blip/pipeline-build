@@ -38,7 +38,7 @@ jobs:
   docker:
     needs: build-test
     runs-on: ubuntu-latest
-   
+    
     steps:
       - name: Checkout del código principal
         uses: actions/checkout@v4
@@ -51,43 +51,36 @@ jobs:
       - name: Mostrar archivos del repositorio clonado
         run: ls -la
 
-      # 1️⃣ Checkout con soporte para PRs (evita el error refs/pull/*/merge)
+
+      - name: Configurar Docker Buildx
+        uses: docker/setup-buildx-action@v3
+        with:
+            driver: docker-container  # evita el error de cache
+
+      - name: Login en Docker Hub
+        uses: docker/login-action@v3
+        with:
+            username: ${{ inputs.dockerhub_username }}
+            password: ${{ secrets.DOCKERHUB_TOKEN }}
+            logout: true
+
       - name: Checkout repository
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
           ref: ${{ github.event.pull_request.head.sha || github.sha }}
 
-      # 2️⃣ Login a Docker Hub
-      - name: Login to DockerHub
-        uses: docker/login-action@v3
-        with:
-          username: ${{ inputs.dockerhub_username}}
-          password: ${{ secrets.DOCKERHUB_TOKEN }}
-
-      # 3️⃣ Configurar Docker Buildx
-      - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v3
-
-      # 4️⃣ Definir etiqueta dinámica según tipo de evento
-      - name: Set image tag
-        id: vars
-        run: |
-          if [[ "${{ github.event_name }}" == "pull_request" ]]; then
-              echo "TAG=pr-${{ github.event.number }}" >> $GITHUB_OUTPUT
-          else
-              echo "TAG=latest" >> $GITHUB_OUTPUT
-          fi
-
-      # 5️⃣ Construir y publicar la imagen
       - name: Construir y publicar imagen (con cache y tag dinámico)
         uses: docker/build-push-action@v6
         with:
-          context: .
+           # Ruta donde están el Dockerfile y los archivos necesarios
+           # context: ./local
+
+           # (opcional) Si el Dockerfile no está en la raíz del contexto
           file: ./local/Dockerfile
-          push: ${{ github.event_name != 'pull_request' }}  # no publica en PR
+          push: true
           tags: |
-              ${{ inputs.dockerhub_username }}/system-info-app:${{ steps.vars.outputs.TAG }}
-                ${{ inputs.dockerhub_username }}/system-info-app:${{ github.sha }}
+             ${{ inputs.dockerhub_username }}/${{ inputs.docker_image }}:latest
+             ${{ inputs.dockerhub_username }}/${{ inputs.docker_image }}:${{ github.sha }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
