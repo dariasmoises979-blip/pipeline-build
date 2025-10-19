@@ -14,15 +14,20 @@ on:
         value: ${{ jobs.show-date.outputs.date }}
 
 jobs:
-  show-date:
+  build-test:
     runs-on: ubuntu-latest
-    outputs:
-      date: ${{ steps.get-date.outputs.date }}
-    
     steps:
-      - name: Show current date
-        id: get-date
+      - name: Checkout del código
+        uses: actions/checkout@v4
+
+      - name: Configurar Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Instalar dependencias
         run: |
-          echo "Showing date in timezone: ${{ inputs.timezone }}"
-          TZ='${{ inputs.timezone }}' date
-          echo "date=$(TZ='${{ inputs.timezone }}' date '+%Y-%m-%d %H:%M:%S')" >> $GITHUB_OUTPUT
+          pip install flask pytest
+
+      - name: Ejecutar tests
+        run: pytest -v
