@@ -44,7 +44,7 @@ jobs:
               with:
                 repository: dariasmoises979-blip/app
                 path: app/local
-                token: ${{ secrets.GITHUB_TOKEN }} # suficiente si el repo es tuyo
+                token: ${{ secrets.GITHUB_TOKEN }} 
 
             - name: Ver contenido del otro repo
               run: |
@@ -67,3 +67,4 @@ jobs:
                   ${{ secrets.DOCKERHUB_USERNAME }}/flask-info-app:${{ github.sha }}
                 cache-from: type=gha
                 cache-to: type=gha,mode=max
+                working-directory: local
