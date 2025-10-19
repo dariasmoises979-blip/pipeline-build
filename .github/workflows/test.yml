@@ -3,15 +3,17 @@ name: Reusable Date Workflow
 on:
   workflow_call:
     inputs:
-      timezone:
-        description: 'Timezone for date (e.g., Europe/Madrid)'
-        required: false
+      docker_image:
+        description: "Nombre de la imagen Docker (sin tag)"
+        required: true
         type: string
-        default: 'UTC'
-    outputs:
-      current_date:
-        description: 'The current date'
-        value: ${{ jobs.show-date.outputs.date }}
+      dockerhub_username:
+        description: "Usuario de Docker Hub (texto literal, no secret)"
+        required: true
+        type: string
+    secrets:
+      DOCKERHUB_TOKEN:
+        required: true
 
 jobs:
   test-Integration:
@@ -40,5 +42,4 @@ jobs:
 
       - name: Ejecutar análisis de SonarCloud
         run: echo "Análisis de SonarCloud ejecutado correctamente"
-    needs: build-test
-
+    needs: test-Integration
