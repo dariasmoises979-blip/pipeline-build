@@ -1,17 +1,19 @@
-name: Reusable Date Workflow
+name: Reusable Build & Push Workflow
 
 on:
   workflow_call:
     inputs:
-      timezone:
-        description: 'Timezone for date (e.g., Europe/Madrid)'
-        required: false
+      docker_image:
+        description: "Nombre de la imagen Docker (sin tag)"
+        required: true
         type: string
-        default: 'UTC'
-    outputs:
-      current_date:
-        description: 'The current date'
-        value: ${{ jobs.show-date.outputs.date }}
+      dockerhub_username:
+        description: "Usuario de Docker Hub"
+        required: true
+        type: string
+    secrets:
+      DOCKERHUB_TOKEN:
+        required: true
 
 jobs:
   build-test:
@@ -23,7 +25,7 @@ jobs:
       - name: Configurar Python
         uses: actions/setup-python@v5
         with:
-          python-version: '3.12'
+          python-version: "3.12"
 
       - name: Instalar dependencias
         run: |
@@ -36,36 +38,35 @@ jobs:
     needs: build-test
     runs-on: ubuntu-latest
     steps:
-        - name: Checkout del código
-          uses: actions/checkout@v4
-    
-        - name: Checkout otro repositorio
-          uses: actions/checkout@v4
-          with:
-            repository: dariasmoises979-blip/app
-            path: app/local
-            token: ${{ secrets.GITHUB_TOKEN }} 
-            working-directory: local
-  
-        - name: Ver contenido del otro repo
-          run: |
-            echo "Contenido de otro-repo:"
-            ls -la
-                    
-        - name: Login en Docker Hub
-          uses: docker/login-action@v2
-          with:
-            username: ${{ secrets.DOCKERHUB_USERNAME }}
-            password: ${{ secrets.DOCKERHUB_TOKEN }}
-            logout: true              
-        
-        - name: Construir y publicar imagen (con cache y tag dinámico)
-          uses: docker/build-push-action@v6
-          with:
-            push: true
-            tags: |
-                ${{ secrets.DOCKERHUB_USERNAME }}/flask-info-app:latest
-                ${{ secrets.DOCKERHUB_USERNAME }}/flask-info-app:${{ github.sha }}
-                cache-from: type=gha
-                cache-to: type=gha,mode=max
-                 
+      - name: Checkout del código principal
+        uses: actions/checkout@v4
+
+      - name: Checkout de otro repositorio
+        uses: actions/checkout@v4
+        with:
+          repository: dariasmoises979-blip/app
+          path: app/local
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Ver contenido del otro repo
+        run: |
+          echo "Contenido de app/local:"
+          ls -la app/local
+
+      - name: Login en Docker Hub
+        uses: docker/login-action@v3
+        with:
+          username: ${{ inputs.dockerhub_username }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+          logout: true
+
+      - name: Construir y publicar imagen (con cache y tag dinámico)
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          push: true
+          tags: |
+            ${{ inputs.dockerhub_username }}/${{ inputs.docker_image }}:latest
+            ${{ inputs.dockerhub_username }}/${{ inputs.docker_image }}:${{ github.sha }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
