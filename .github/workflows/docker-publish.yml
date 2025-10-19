@@ -8,7 +8,7 @@ on:
         required: true
         type: string
       dockerhub_username:
-        description: "Usuario de Docker Hub"
+        description: "Usuario de Docker Hub (texto literal, no secret)"
         required: true
         type: string
     secrets:
