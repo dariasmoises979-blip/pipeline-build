@@ -40,6 +40,12 @@ jobs:
     steps:
       - name: Checkout del código principal
         uses: actions/checkout@v4
+ 
+      - name: Clona el repositorio de pipeline-build
+        uses: actions/checkout@v4
+        with:
+            repository: dariasmoises979-blip/app
+            
 
       - name: Configurar Docker Buildx
         uses: docker/setup-buildx-action@v3
