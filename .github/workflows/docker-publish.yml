@@ -38,9 +38,7 @@ jobs:
   docker:
     needs: build-test
     runs-on: ubuntu-latest
-    permissions:
-      contents: read
-      packages: write   
+   
     steps:
       - name: Checkout del código principal
         uses: actions/checkout@v4
