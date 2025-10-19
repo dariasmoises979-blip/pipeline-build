@@ -66,10 +66,10 @@ jobs:
         uses: docker/build-push-action@v6
         with:
            # Ruta donde están el Dockerfile y los archivos necesarios
-          context: ./local
+           # context: ./local
 
            # (opcional) Si el Dockerfile no está en la raíz del contexto
-           # file: ./ruta/a/tu/directorio/Dockerfile
+          file: ./local/Dockerfile
           push: true
           tags: |
              ${{ inputs.dockerhub_username }}/${{ inputs.docker_image }}:latest
