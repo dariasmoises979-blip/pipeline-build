@@ -56,7 +56,7 @@ jobs:
       - name: Ejecutar análisis de SonarCloud
         run: echo "Análisis de SonarCloud ejecutado correctamente"
     needs: checkout
-    
+
   qa:
     runs-on: ubuntu-latest
     steps:
@@ -68,7 +68,7 @@ jobs:
     needs: sonarcloud
 
   docker:
-    needs: build-test
+    needs: qa
     runs-on: ubuntu-latest
     steps:
       - name: Checkout del código principal
