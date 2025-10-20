@@ -1,9 +1,21 @@
 name: Reusable Date Workflow
 
 on:
-  workflow_call:
+  workflow_call:  # permite que otro workflow (padre) lo invoque
+    secrets:
+      SONAR_TOKEN:
+        required: true
+    inputs:
+      branch:
+        required: false
+        type: string
+        default: "qa"
 
-
+permissions:
+  actions: read
+  contents: read
+  security-events: write
+  
 jobs:
   test-qa:
     runs-on: ubuntu-latest
