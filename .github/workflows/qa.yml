@@ -79,4 +79,4 @@ jobs:
           category: "security"
       - name: Ejecutar análisis de SonarCloud
         run: echo "Identifica vulnerabilidades de seguridad en el código"
-    needs: secrets detection
+    needs: secrets_detection
