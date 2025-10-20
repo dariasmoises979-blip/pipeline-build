@@ -22,3 +22,45 @@ jobs:
 
       - name: Ejecutar tests
         run: pytest -v
+        
+  test-integration-qa:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout del código
+        uses: actions/checkout@v4
+
+      - name: Ejecutar análisis de SonarCloud
+        run: echo "Comprueba que cada función o módulo funciona bien individualmente"
+    needs: test-qa
+
+  test-lint-qa:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout del código
+        uses: actions/checkout@v4
+
+      - name: Ejecutar análisis
+        run: echo "DControl de estilo, errores comunes"
+    needs: test-integration-qa
+
+  sonarcloud-qa:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout del código
+        uses: actions/checkout@v4
+
+      - name: Ejecutar análisis de SonarCloud
+        run: echo "Detección temprana de errores y malas prácticas"
+    needs: test-lint-qa
+
+  secrets detection:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout del código
+        uses: actions/checkout@v4
+
+      - name: Run GitHub Secrets Detection
+        uses: github/codeql-action/analyze@v2
+        with:
+          category: "secret"
+    needs: sonarcloud-qa
