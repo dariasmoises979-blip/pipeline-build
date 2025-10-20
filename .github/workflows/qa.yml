@@ -55,17 +55,29 @@ jobs:
 
   secrets_detection:
     runs-on: ubuntu-latest
+    permissions:
+      security-events: write
+      actions: read
+      contents: read
+
     steps:
       - name: Checkout del código
         uses: actions/checkout@v4
 
-      - name: Run GitHub Secrets Detection
+      - name: Inicializar CodeQL
+        uses: github/codeql-action/init@v2
+        with:
+          languages: javascript  # o el lenguaje que uses
+
+      - name: Ejecutar análisis CodeQL
         uses: github/codeql-action/analyze@v2
         with:
           category: "secret"
+
       - name: Ejecutar análisis de SonarCloud
         run: echo "Asegura que no se suban claves o contraseñas"
     needs: sonarcloud-qa
+
 
   security_vulnerabilities:
     runs-on: ubuntu-latest
