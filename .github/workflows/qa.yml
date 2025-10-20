@@ -97,10 +97,24 @@ jobs:
       - name: Checkout del código
         uses: actions/checkout@v4
 
-      - name: Run GitHub Security Vulnerabilities Detection
+      # Paso 1: Inicializa CodeQL
+      - name: Inicializar CodeQL
+        uses: github/codeql-action/init@v2
+        with:
+          languages: python  # o python, java, cpp, etc. según tu proyecto
+          # Puedes agregar más lenguajes separados por coma
+
+      # Paso 2: Compila o prepara el código si es necesario
+      # (por ejemplo, npm install, mvn package, etc.)
+      # - run: npm install
+
+      # Paso 3: Ejecuta el análisis de CodeQL
+      - name: Ejecutar análisis de CodeQL
         uses: github/codeql-action/analyze@v2
         with:
           category: "security"
+
+      # Paso 4: Ejecutar análisis adicional (opcional)
       - name: Ejecutar análisis de SonarCloud
         run: echo "Identifica vulnerabilidades de seguridad en el código"
     needs: secrets_detection
