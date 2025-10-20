@@ -53,7 +53,7 @@ jobs:
         run: echo "Detección temprana de errores y malas prácticas"
     needs: test-lint-qa
 
-  secrets detection:
+  secrets_detection:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout del código
@@ -67,7 +67,7 @@ jobs:
         run: echo "Asegura que no se suban claves o contraseñas"
     needs: sonarcloud-qa
 
-  security vulnerabilities:
+  security_vulnerabilities:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout del código
