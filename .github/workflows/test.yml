@@ -5,7 +5,7 @@ on:
 
 
 jobs:
-  test-Integration:
+  test-unit:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout del código
@@ -23,6 +23,26 @@ jobs:
       - name: Ejecutar tests
         run: pytest -v
 
+  test-integration:
+          runs-on: ubuntu-latest
+          steps:
+            - name: Checkout del código
+              uses: actions/checkout@v4
+      
+            - name: Ejecutar análisis de SonarCloud
+              run: echo "Comprueba que cada función o módulo funciona bien individualmente"
+          needs: test-unit
+
+  test-lint:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout del código
+        uses: actions/checkout@v4
+
+      - name: Ejecutar análisis
+        run: echo "DControl de estilo, errores comunes"
+    needs: test-integration
+
   sonarcloud:
     runs-on: ubuntu-latest
     steps:
@@ -30,5 +50,6 @@ jobs:
         uses: actions/checkout@v4
 
       - name: Ejecutar análisis de SonarCloud
-        run: echo "Análisis de SonarCloud ejecutado correctamente"
-    needs: test-Integration
+        run: echo "Detección temprana de errores y malas prácticas"
+    needs: test-lint
+
