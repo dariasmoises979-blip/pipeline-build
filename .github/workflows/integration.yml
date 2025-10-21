@@ -1,0 +1,34 @@
+name: Reusable Date Workflow
+
+on:
+  workflow_call:  # permite que otro workflow (padre) lo invoque
+    #secrets:
+    #  SONAR_TOKEN:
+    #    required: true
+    #inputs:
+    #  branch:
+    #    required: false
+    #    type: string
+    #    default: "qa"
+
+permissions:
+  actions: read
+  contents: read
+  security-events: write
+
+jobs:
+  integration:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout del código
+        uses: actions/checkout@v4
+        
+  test-integration:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout del código
+        uses: actions/checkout@v4
+        
+      - name: Ejecutar análisis de SonarCloud
+        run: echo "Comprueba que cada función o módulo funciona bien individualmente"
+        
