@@ -5,11 +5,11 @@ on:
     #secrets:
     #  SONAR_TOKEN:
     #    required: true
-    inputs:
-      branch:
-        required: false
-        type: string
-        default: "qa"
+    #inputs:
+    #  branch:
+    #    required: false
+    #    type: string
+    #    default: "qa"
 
 permissions:
   actions: read
