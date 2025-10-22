@@ -1,0 +1,154 @@
+########################################
+# 🔄 WORKFLOW REUSABLE: Auto Merge Branches
+# Fusiona automáticamente una rama origen en una rama destino
+# después de que los tests pasen correctamente.
+########################################
+
+name: Reusable Auto Merge
+
+# 🔧 Definir como workflow reusable con inputs configurables
+on:
+  workflow_call:
+    inputs:
+      source_branch:
+        description: 'Rama origen desde donde se hará el merge'
+        required: true
+        type: string
+      target_branch:
+        description: 'Rama destino donde se fusionarán los cambios'
+        required: true
+        type: string
+      merge_message:
+        description: 'Mensaje personalizado para el commit de merge'
+        required: false
+        type: string
+        default: ''
+      use_fast_forward:
+        description: 'Usar fast-forward merge (true) o crear merge commit (false)'
+        required: false
+        type: boolean
+        default: false
+
+jobs:
+  # ═══════════════════════════════════════════════════════════
+  # 📋 JOB: FUSIONAR RAMA ORIGEN EN RAMA DESTINO
+  # ═══════════════════════════════════════════════════════════
+  auto-merge:
+    name: Merge ${{ inputs.source_branch }} → ${{ inputs.target_branch }}
+    runs-on: ubuntu-latest
+    
+    # 🔐 Permisos necesarios para hacer merge y push
+    permissions:
+      contents: write         # Necesario para hacer push al repositorio
+      pull-requests: write    # Permite crear/actualizar PRs si es necesario
+
+    steps:
+      # ═══════════════════════════════════════════════════════════
+      # 📥 PASO 1: CLONAR EL REPOSITORIO COMPLETO
+      # ═══════════════════════════════════════════════════════════
+      # Obtiene todo el código y el historial completo de Git
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0                    # 📚 Obtiene todo el historial (necesario para merge)
+          token: ${{ secrets.GITHUB_TOKEN }} # 🔑 Token de autenticación
+          persist-credentials: true          # 💾 Mantiene las credenciales para push
+
+      # ═══════════════════════════════════════════════════════════
+      # ⚙️ PASO 2: CONFIGURAR GIT PARA COMMITS AUTOMÁTICOS
+      # ═══════════════════════════════════════════════════════════
+      # Configura el usuario y email para los commits que hará el bot
+      - name: Configure Git identity
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+
+      # ═══════════════════════════════════════════════════════════
+      # 🔀 PASO 3: REALIZAR EL MERGE AUTOMÁTICO
+      # ═══════════════════════════════════════════════════════════
+      # Fusiona la rama origen en la rama destino
+      - name: Merge ${{ inputs.source_branch }} into ${{ inputs.target_branch }}
+        run: |
+          # ───────────────────────────────────────────────────────
+          # Obtener las últimas versiones de ambas ramas
+          # ───────────────────────────────────────────────────────
+          echo "🔄 Fetching latest changes..."
+          git fetch origin ${{ inputs.source_branch }}
+          git fetch origin ${{ inputs.target_branch }}
+          
+          # ───────────────────────────────────────────────────────
+          # Cambiar a la rama destino
+          # ───────────────────────────────────────────────────────
+          echo "📍 Switching to ${{ inputs.target_branch }} branch..."
+          git checkout ${{ inputs.target_branch }}
+          
+          # ───────────────────────────────────────────────────────
+          # Preparar el mensaje de merge
+          # ───────────────────────────────────────────────────────
+          if [ -z "${{ inputs.merge_message }}" ]; then
+            MERGE_MSG="🔀 Auto-merge from ${{ inputs.source_branch }} after successful tests"
+          else
+            MERGE_MSG="${{ inputs.merge_message }}"
+          fi
+          
+          # ───────────────────────────────────────────────────────
+          # Ejecutar el merge según la estrategia configurada
+          # ───────────────────────────────────────────────────────
+          echo "🔀 Merging ${{ inputs.source_branch }} into ${{ inputs.target_branch }}..."
+          
+          if [ "${{ inputs.use_fast_forward }}" = "true" ]; then
+            # Fast-forward merge (sin crear commit de merge)
+            echo "⚡ Using fast-forward merge..."
+            git merge --ff-only origin/${{ inputs.source_branch }} -m "$MERGE_MSG"
+          else
+            # No fast-forward merge (crea commit de merge explícito)
+            echo "🔗 Creating merge commit..."
+            git merge --no-ff origin/${{ inputs.source_branch }} -m "$MERGE_MSG"
+          fi
+          
+          # ───────────────────────────────────────────────────────
+          # Enviar los cambios al repositorio remoto
+          # ───────────────────────────────────────────────────────
+          echo "📤 Pushing changes to remote..."
+          git push origin ${{ inputs.target_branch }}
+          
+          echo "✅ Merge completed successfully!"
+
+      # ═══════════════════════════════════════════════════════════
+      # 📢 PASO 4: NOTIFICAR EL RESULTADO DEL MERGE
+      # ═══════════════════════════════════════════════════════════
+      # Registra información útil sobre el merge realizado
+      - name: Log merge information
+        if: success()
+        run: |
+          echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+          echo "✅ MERGE COMPLETED SUCCESSFULLY"
+          echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+          echo "📤 Source branch: ${{ inputs.source_branch }}"
+          echo "📥 Target branch: ${{ inputs.target_branch }}"
+          echo "🔗 Workflow run: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+          echo "👤 Triggered by: ${{ github.actor }}"
+          echo "📅 Date: $(date -u +'%Y-%m-%d %H:%M:%S UTC')"
+          echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+
+      # ═══════════════════════════════════════════════════════════
+      # ❌ PASO 5: MANEJAR ERRORES DE MERGE
+      # ═══════════════════════════════════════════════════════════
+      # Si el merge falla, proporciona información útil
+      - name: Handle merge failure
+        if: failure()
+        run: |
+          echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+          echo "❌ MERGE FAILED"
+          echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+          echo "⚠️  Possible reasons:"
+          echo "   • Merge conflicts detected"
+          echo "   • Branch protection rules blocking the push"
+          echo "   • Network or authentication issues"
+          echo ""
+          echo "📋 Next steps:"
+          echo "   1. Check for merge conflicts"
+          echo "   2. Manually merge ${{ inputs.source_branch }} into ${{ inputs.target_branch }}"
+          echo "   3. Review branch protection settings"
+          echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+          exit 1
