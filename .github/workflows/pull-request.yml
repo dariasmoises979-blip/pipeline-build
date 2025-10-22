@@ -1,0 +1,183 @@
+########################################
+# 🔄 WORKFLOW REUSABLE: Create Pull Request
+# Crea automáticamente un Pull Request entre dos ramas
+# cuando los tests pasan correctamente.
+########################################
+
+name: Reusable PR Creator
+
+# 🔧 Definir como workflow reusable con inputs configurables
+on:
+  workflow_call:
+    inputs:
+      source_branch:
+        description: 'Rama origen (head) desde donde vienen los cambios'
+        required: true
+        type: string
+      target_branch:
+        description: 'Rama destino (base) donde se mergearán los cambios'
+        required: true
+        type: string
+      pr_title:
+        description: 'Título del Pull Request'
+        required: false
+        type: string
+        default: '🚀 Automated Deployment'
+      environment:
+        description: 'Nombre del ambiente (dev, qa, staging, production)'
+        required: false
+        type: string
+        default: 'deployment'
+      labels:
+        description: 'Labels separados por coma (ej: automated,deployment,hotfix)'
+        required: false
+        type: string
+        default: 'automated,deployment'
+
+jobs:
+  # ═══════════════════════════════════════════════════════════
+  # 📋 JOB: CREAR O ACTUALIZAR PULL REQUEST
+  # ═══════════════════════════════════════════════════════════
+  create-pr:
+    name: Create PR from ${{ inputs.source_branch }} to ${{ inputs.target_branch }}
+    runs-on: ubuntu-latest
+    
+    # 🔐 Permisos necesarios para interactuar con el repositorio
+    permissions:
+      contents: read          # Lectura del contenido del repositorio
+      pull-requests: write    # Escritura para crear/modificar PRs
+    
+    steps:
+      - name: Create or Update Pull Request via API
+        uses: actions/github-script@v7  # 🛠️ Action oficial para ejecutar scripts con la API de GitHub
+        with:
+          script: |
+            # 📦 Obtener información del repositorio y configuración
+            const { owner, repo } = context.repo;
+            const sourceBranch = '${{ inputs.source_branch }}';
+            const targetBranch = '${{ inputs.target_branch }}';
+            const prTitle = '${{ inputs.pr_title }}';
+            const environment = '${{ inputs.environment }}';
+            const labelsInput = '${{ inputs.labels }}';
+            
+            # Convertir labels de string a array
+            const labels = labelsInput.split(',').map(l => l.trim()).filter(l => l);
+            
+            # ═══════════════════════════════════════════════════════════
+            # 🔍 PASO 1: VERIFICAR SI YA EXISTE UN PR ABIERTO
+            # ═══════════════════════════════════════════════════════════
+            # Busca PRs con estas características:
+            # - Origen (head): rama definida en source_branch
+            # - Destino (base): rama definida en target_branch
+            # - Estado: abierto (open)
+            const { data: existingPRs } = await github.rest.pulls.list({
+              owner,
+              repo,
+              head: `${owner}:${sourceBranch}`,
+              base: targetBranch,
+              state: 'open'
+            });
+
+            # ───────────────────────────────────────────────────────────
+            # 📝 SI EL PR YA EXISTE: Solo actualizar con comentario
+            # ───────────────────────────────────────────────────────────
+            if (existingPRs.length > 0) {
+              console.log(`✅ PR already exists: #${existingPRs[0].number}`);
+              console.log(`URL: ${existingPRs[0].html_url}`);
+              
+              # Agregar un comentario informativo al PR existente
+              # indicando que la rama origen se actualizó y los tests pasaron
+              await github.rest.issues.createComment({
+                owner,
+                repo,
+                issue_number: existingPRs[0].number,
+                body: `🔄 **Branch \`${sourceBranch}\` updated successfully**
+                
+                ✅ All tests passed
+                🎯 Environment: **${environment}**
+                
+                ### 🔗 Workflow Details
+                - **Run:** [#${context.runNumber}](https://github.com/${owner}/${repo}/actions/runs/${context.runId})
+                - **Commit:** \`${context.sha.substring(0, 7)}\`
+                - **Triggered by:** @${context.actor}
+                - **Date:** ${new Date().toLocaleString('es-ES', { timeZone: 'Europe/Madrid' })}
+                
+                ---
+                *🤖 Auto-updated by GitHub Actions*`
+              });
+              
+              return;  # 🛑 Termina aquí si el PR ya existía
+            }
+
+            # ═══════════════════════════════════════════════════════════
+            # 🆕 PASO 2: CREAR NUEVO PULL REQUEST
+            # ═══════════════════════════════════════════════════════════
+            # Solo se ejecuta si NO había un PR abierto previamente
+            const { data: pr } = await github.rest.pulls.create({
+              owner,
+              repo,
+              title: prTitle,           # Título personalizable del PR
+              head: sourceBranch,       # Rama origen (desde donde vienen los cambios)
+              base: targetBranch,       # Rama destino (donde se mergearán)
+              body: `## 🚀 Automatic Deployment: \`${sourceBranch}\` → \`${targetBranch}\`
+              
+              This PR contains the latest changes from **\`${sourceBranch}\`** branch ready for **${environment.toUpperCase()}** environment.
+
+              ### 📋 Pre-merge Checklist
+              - [ ] Code has been reviewed
+              - [ ] All tests are passing ✅
+              - [ ] Ready for ${environment} environment
+              - [ ] No conflicts detected
+              
+              ### 🔗 Workflow Information
+              | Item | Value |
+              |------|-------|
+              | **Workflow Run** | [#${context.runNumber}](https://github.com/${owner}/${repo}/actions/runs/${context.runId}) |
+              | **Source Branch** | \`${sourceBranch}\` |
+              | **Target Branch** | \`${targetBranch}\` |
+              | **Commit SHA** | \`${context.sha}\` |
+              | **Triggered by** | @${context.actor} |
+              | **Environment** | ${environment} |
+              
+              ### 📊 Branch Comparison
+              [View full diff](https://github.com/${owner}/${repo}/compare/${targetBranch}...${sourceBranch})
+              
+              ---
+              *🤖 Auto-generated by GitHub Actions on ${new Date().toLocaleString('es-ES', { timeZone: 'Europe/Madrid' })}*`,
+              draft: false  # false = PR normal, true = draft PR
+            });
+            
+            # ───────────────────────────────────────────────────────────
+            # 🏷️ PASO 3: ETIQUETAR EL PR RECIÉN CREADO
+            # ───────────────────────────────────────────────────────────
+            # Añade labels para facilitar la organización y filtrado
+            # Los labels se toman del input 'labels' del workflow
+            if (labels.length > 0) {
+              await github.rest.issues.addLabels({
+                owner,
+                repo,
+                issue_number: pr.number,
+                labels: labels
+              });
+            }
+            
+            console.log(`✅ Pull Request created successfully!`);
+            console.log(`   Number: #${pr.number}`);
+            console.log(`   URL: ${pr.html_url}`);
+            console.log(`   Source: ${sourceBranch} → Target: ${targetBranch}`);
+            
+            # ───────────────────────────────────────────────────────────
+            # 👥 PASO 4 (OPCIONAL): ASIGNAR REVISORES AUTOMÁTICAMENTE
+            # ───────────────────────────────────────────────────────────
+            # Descomenta estas líneas si quieres que ciertos usuarios
+            # sean asignados automáticamente como revisores del PR
+            # 
+            # const reviewers = ['usuario1', 'usuario2'];
+            # if (reviewers.length > 0) {
+            #   await github.rest.pulls.requestReviewers({
+            #     owner,
+            #     repo,
+            #     pull_number: pr.number,
+            #     reviewers: reviewers
+            #   });
+            # }
