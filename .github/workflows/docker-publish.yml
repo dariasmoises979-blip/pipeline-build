@@ -83,9 +83,8 @@ jobs:
 
       - name: Build Docker image
         id: build
-        working-directory: ./local
         run: |
-          docker build -t ${{ inputs.image_name }}:${{ inputs.image_tag }} -f Dockerfile .
+          docker build -t ${{ inputs.image_name }}:${{ inputs.image_tag }} -f local/Dockerfile .
           echo "image=${{ inputs.image_name }}:${{ inputs.image_tag }}" >> $GITHUB_OUTPUT
 
   # Análisis de seguridad de imagen Docker
@@ -101,9 +100,8 @@ jobs:
           fetch-depth: 1
 
       - name: Build image for scanning
-        working-directory: ./local
         run: |
-          docker build -t ${{ inputs.image_name }}:${{ inputs.image_tag }} -f Dockerfile .
+          docker build -t ${{ inputs.image_name }}:${{ inputs.image_tag }} -f local/Dockerfile .
 
       - name: Run Trivy vulnerability scanner
         uses: aquasecurity/trivy-action@master
@@ -135,7 +133,7 @@ jobs:
       - name: Dockerfile security check con Hadolint
         uses: hadolint/hadolint-action@v3.1.0
         with:
-          dockerfile: local/Dockerfile
+          dockerfile: ./local/Dockerfile
           failure-threshold: warning
 
   # Análisis de rendimiento y optimización
@@ -151,9 +149,8 @@ jobs:
           fetch-depth: 1
 
       - name: Build image
-        working-directory: ./local
         run: |
-          docker build -t ${{ inputs.image_name }}:${{ inputs.image_tag }} -f Dockerfile .
+          docker build -t ${{ inputs.image_name }}:${{ inputs.image_tag }} -f local/Dockerfile .
 
       - name: Análisis de tamaño de imagen
         id: image_size
@@ -206,9 +203,8 @@ jobs:
           fetch-depth: 1
 
       - name: Build image
-        working-directory: ./local
         run: |
-          docker build -t ${{ inputs.image_name }}:${{ inputs.image_tag }} -f Dockerfile .
+          docker build -t ${{ inputs.image_name }}:${{ inputs.image_tag }} -f local/Dockerfile .
 
       - name: Test de inicio del contenedor
         id: startup_test
@@ -366,4 +362,3 @@ jobs:
               repo: context.repo.repo,
               body: recommendations
             });
-            
