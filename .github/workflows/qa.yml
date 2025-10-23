@@ -77,12 +77,12 @@ jobs:
         uses: actions/checkout@v4
 
       - name: Inicializar CodeQL
-        uses: github/codeql-action/init@v2
+        uses: github/codeql-action/init@v3
         with:
           languages: javascript  # o el lenguaje que uses
 
       - name: Ejecutar análisis CodeQL
-        uses: github/codeql-action/analyze@v2
+        uses: github/codeql-action/analyze@v3
         with:
           category: "secret"
 
