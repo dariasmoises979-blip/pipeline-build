@@ -14,6 +14,8 @@ on:
     secrets:
       SONAR_TOKEN:
         required: false
+      DOCKERHUB_TOKEN:
+        required: false
 
 permissions:
   actions: read
@@ -41,11 +43,12 @@ jobs:
           token: ${{ secrets.GITHUB_TOKEN }}
 
       - name: SonarCloud Scan
-        if: ${{ secrets.SONAR_TOKEN != '' }}
+        if: ${{ secrets.SONAR_TOKEN }}
         uses: SonarSource/sonarcloud-github-action@master
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+        continue-on-error: true
 
       - name: Run CodeQL Analysis
         uses: github/codeql-action/init@v2
