@@ -1,127 +1,361 @@
-name: Reusable Build & Push Workflow
+name: Security & Performance Analysis
 
 on:
   workflow_call:
     inputs:
-      docker_image:
-        description: "Nombre de la imagen Docker (sin tag)"
-        required: true
+      image_name:
+        required: false
         type: string
-      dockerhub_username:
-        description: "Usuario de Docker Hub (texto literal, no secret)"
-        required: true
+        default: "myapp"
+      image_tag:
+        required: false
         type: string
+        default: "latest"
     secrets:
-      DOCKERHUB_TOKEN:
-        required: true
+      SONAR_TOKEN:
+        required: false
+
+permissions:
+  actions: read
+  contents: read
+  security-events: write
+  pull-requests: write
 
 jobs:
-  build-test:
-    runs-on: ubuntu-latest
-    steps:
-      - name: Checkout del código
-        uses: actions/checkout@v4
-
-      - name: Configurar Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: "3.12"
-
-      - name: Instalar dependencias
-        run: |
-          pip install flask pytest
-
-      - name: Ejecutar tests
-        run: pytest -v
-
-  sonarcloud:
-    runs-on: ubuntu-latest
-    steps:
-      - name: Checkout del código
-        uses: actions/checkout@v4
-
-      - name: Ejecutar análisis de SonarCloud
-        run: echo "Análisis de SonarCloud ejecutado correctamente"
-    needs: build-test
-
-  qa:
-    runs-on: ubuntu-latest
-    steps:
-      - name: Checkout del código
-        uses: actions/checkout@v4
-
-      - name: Ejecutar pruebas de QA
-        run: echo "Pruebas de QA ejecutadas correctamente"
-    needs: sonarcloud
-
-  docker:
-    needs: qa
+  # Análisis de código estático
+  code-analysis:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout del código principal
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
-          path: main
 
-      - name: Clonar el repositorio pipeline-build
+      - name: Clonar el repositorio app
         uses: actions/checkout@v4
         with:
-            repository: dariasmoises979-blip/app
-            ref: main   # ⚠️ O usa 'master' si esa es la rama principal
-            path: pipeline-build
-            fetch-depth: 1
-  
-            
-      - name: Mostrar archivos del repositorio clonado
-        run: ls -la
+          repository: dariasmoises979-blip/app
+          ref: main
+          path: pipeline-build
+          fetch-depth: 1
+          token: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Checkout repository
+      - name: SonarCloud Scan
+        if: ${{ secrets.SONAR_TOKEN != '' }}
+        uses: SonarSource/sonarcloud-github-action@master
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+
+      - name: Run CodeQL Analysis
+        uses: github/codeql-action/init@v2
+        with:
+          languages: 'javascript,python,java'
+
+      - name: Autobuild
+        uses: github/codeql-action/autobuild@v2
+
+      - name: Perform CodeQL Analysis
+        uses: github/codeql-action/analyze@v2
+
+  # Construcción de imagen Docker
+  build-image:
+    runs-on: ubuntu-latest
+    outputs:
+      image: ${{ steps.build.outputs.image }}
+    steps:
+      - name: Clonar el repositorio app
         uses: actions/checkout@v4
         with:
-           fetch-depth: 0
-           ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          repository: dariasmoises979-blip/app
+          ref: main
+          fetch-depth: 1
 
-
-      - name: Configurar Docker Buildx
+      - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
-        with:
-          driver: docker-container  # evita el error de cache
 
-      - name: Login en Docker Hub
-        uses: docker/login-action@v3
-        with:
-            username: ${{ inputs.dockerhub_username }}
-            password: ${{ secrets.DOCKERHUB_TOKEN }}
-            logout: true
-      
-      - name: Checkout completo para PR
-        if: ${{ github.event_name == 'pull_request' }}
+      - name: Build Docker image
+        id: build
+        working-directory: ./local
+        run: |
+          docker build -t ${{ inputs.image_name }}:${{ inputs.image_tag }} -f Dockerfile .
+          echo "image=${{ inputs.image_name }}:${{ inputs.image_tag }}" >> $GITHUB_OUTPUT
+
+  # Análisis de seguridad de imagen Docker
+  security-scan:
+    needs: build-image
+    runs-on: ubuntu-latest
+    steps:
+      - name: Clonar el repositorio app
         uses: actions/checkout@v4
         with:
-          ref: refs/pull/${{ github.event.pull_request.number }}/merge
-          fetch-depth: 0
-      
-      - name: Set image tag
-        id: vars
+          repository: dariasmoises979-blip/app
+          ref: main
+          fetch-depth: 1
+
+      - name: Build image for scanning
+        working-directory: ./local
         run: |
-              if [[ "${{ github.event_name }}" == "pull_request" ]]; then
-                echo "TAG=pr-${{ github.event.number }}" >> $GITHUB_OUTPUT
-              else
-                echo "TAG=latest" >> $GITHUB_OUTPUT
-              fi
+          docker build -t ${{ inputs.image_name }}:${{ inputs.image_tag }} -f Dockerfile .
 
-      - name: Construir y publicar imagen (con cache y tag dinámico)
-        uses: docker/build-push-action@v6
+      - name: Run Trivy vulnerability scanner
+        uses: aquasecurity/trivy-action@master
         with:
-           # Ruta donde están el Dockerfile y los archivos necesarios
-          context: main
+          image-ref: ${{ inputs.image_name }}:${{ inputs.image_tag }}
+          format: 'sarif'
+          output: 'trivy-results.sarif'
+          severity: 'CRITICAL,HIGH,MEDIUM'
 
-           # (opcional) Si el Dockerfile no está en la raíz del contexto
-          file: ./local/Dockerfile
-          push: true
-          tags: |
-             ${{ inputs.dockerhub_username }}/${{ inputs.docker_image }}:latest
-             ${{ inputs.dockerhub_username }}/${{ inputs.docker_image }}:${{ github.sha }}
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
+      - name: Upload Trivy results to GitHub Security
+        uses: github/codeql-action/upload-sarif@v2
+        with:
+          sarif_file: 'trivy-results.sarif'
+
+      - name: Trivy vulnerability scanner (tabla)
+        uses: aquasecurity/trivy-action@master
+        with:
+          image-ref: ${{ inputs.image_name }}:${{ inputs.image_tag }}
+          format: 'table'
+          severity: 'CRITICAL,HIGH,MEDIUM'
+
+      - name: Scan con Grype
+        uses: anchore/scan-action@v3
+        with:
+          image: ${{ inputs.image_name }}:${{ inputs.image_tag }}
+          fail-build: false
+          severity-cutoff: high
+
+      - name: Dockerfile security check con Hadolint
+        uses: hadolint/hadolint-action@v3.1.0
+        with:
+          dockerfile: local/Dockerfile
+          failure-threshold: warning
+
+  # Análisis de rendimiento y optimización
+  performance-analysis:
+    needs: build-image
+    runs-on: ubuntu-latest
+    steps:
+      - name: Clonar el repositorio app
+        uses: actions/checkout@v4
+        with:
+          repository: dariasmoises979-blip/app
+          ref: main
+          fetch-depth: 1
+
+      - name: Build image
+        working-directory: ./local
+        run: |
+          docker build -t ${{ inputs.image_name }}:${{ inputs.image_tag }} -f Dockerfile .
+
+      - name: Análisis de tamaño de imagen
+        id: image_size
+        run: |
+          IMAGE_SIZE=$(docker images ${{ inputs.image_name }}:${{ inputs.image_tag }} --format "{{.Size}}")
+          echo "size=$IMAGE_SIZE" >> $GITHUB_OUTPUT
+          echo "### 📊 Tamaño de Imagen: $IMAGE_SIZE" >> $GITHUB_STEP_SUMMARY
+
+      - name: Análisis de capas Docker
+        run: |
+          echo "### 🔍 Análisis de Capas Docker" >> $GITHUB_STEP_SUMMARY
+          docker history ${{ inputs.image_name }}:${{ inputs.image_tag }} --no-trunc >> $GITHUB_STEP_SUMMARY
+
+      - name: Dive - Análisis de eficiencia de imagen
+        run: |
+          wget https://github.com/wagoodman/dive/releases/download/v0.11.0/dive_0.11.0_linux_amd64.deb
+          sudo apt install ./dive_0.11.0_linux_amd64.deb
+          CI=true dive ${{ inputs.image_name }}:${{ inputs.image_tag }}
+
+      - name: Container Structure Test
+        run: |
+          curl -LO https://storage.googleapis.com/container-structure-test/latest/container-structure-test-linux-amd64
+          chmod +x container-structure-test-linux-amd64
+          sudo mv container-structure-test-linux-amd64 /usr/local/bin/container-structure-test
+          
+          # Crear archivo de test básico si no existe
+          cat > container-test.yaml << 'EOF'
+          schemaVersion: 2.0.0
+          fileExistenceTests:
+            - name: 'Root'
+              path: '/'
+              shouldExist: true
+          metadataTest:
+            exposedPorts: []
+            env: []
+          EOF
+          
+          container-structure-test test --image ${{ inputs.image_name }}:${{ inputs.image_tag }} --config container-test.yaml
+
+  # Prueba de rendimiento en tiempo de ejecución
+  runtime-performance:
+    needs: build-image
+    runs-on: ubuntu-latest
+    steps:
+      - name: Clonar el repositorio app
+        uses: actions/checkout@v4
+        with:
+          repository: dariasmoises979-blip/app
+          ref: main
+          fetch-depth: 1
+
+      - name: Build image
+        working-directory: ./local
+        run: |
+          docker build -t ${{ inputs.image_name }}:${{ inputs.image_tag }} -f Dockerfile .
+
+      - name: Test de inicio del contenedor
+        id: startup_test
+        run: |
+          echo "### ⏱️ Pruebas de Rendimiento de Inicio" >> $GITHUB_STEP_SUMMARY
+          START=$(date +%s%N)
+          CONTAINER_ID=$(docker run -d ${{ inputs.image_name }}:${{ inputs.image_tag }})
+          
+          # Esperar a que el contenedor esté listo (máximo 30 segundos)
+          TIMEOUT=30
+          ELAPSED=0
+          while [ $ELAPSED -lt $TIMEOUT ]; do
+            if docker ps | grep -q $CONTAINER_ID; then
+              break
+            fi
+            sleep 1
+            ELAPSED=$((ELAPSED + 1))
+          done
+          
+          END=$(date +%s%N)
+          DURATION=$(( (END - START) / 1000000 ))
+          echo "startup_time=${DURATION}ms" >> $GITHUB_OUTPUT
+          echo "- **Tiempo de inicio**: ${DURATION}ms" >> $GITHUB_STEP_SUMMARY
+          
+          docker stop $CONTAINER_ID
+          docker rm $CONTAINER_ID
+
+      - name: Análisis de recursos del contenedor
+        run: |
+          echo "### 💻 Uso de Recursos" >> $GITHUB_STEP_SUMMARY
+          CONTAINER_ID=$(docker run -d ${{ inputs.image_name }}:${{ inputs.image_tag }} sleep 60)
+          sleep 5
+          
+          STATS=$(docker stats --no-stream --format "table {{.CPUPerc}}\t{{.MemUsage}}" $CONTAINER_ID)
+          echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
+          echo "$STATS" >> $GITHUB_STEP_SUMMARY
+          echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
+          
+          docker stop $CONTAINER_ID
+          docker rm $CONTAINER_ID
+
+  # Generación de sugerencias y reporte
+  generate-recommendations:
+    needs: [security-scan, performance-analysis, runtime-performance]
+    runs-on: ubuntu-latest
+    if: always()
+    steps:
+      - name: Checkout del código principal
+        uses: actions/checkout@v4
+
+      - name: Clonar el repositorio app
+        uses: actions/checkout@v4
+        with:
+          repository: dariasmoises979-blip/app
+          ref: main
+          path: pipeline-build
+          fetch-depth: 1
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Generar reporte de sugerencias
+        run: |
+          cat > recommendations.md << 'EOF'
+          # 🔐 Reporte de Seguridad y Rendimiento
+          
+          ## 📋 Resumen Ejecutivo
+          Este reporte contiene sugerencias para mejorar la seguridad y rendimiento de tu imagen Docker.
+          
+          ## 🛡️ Sugerencias de Seguridad
+          
+          ### Vulnerabilidades
+          - ✅ Revisa los resultados de Trivy en la pestaña "Security"
+          - ✅ Actualiza las dependencias con vulnerabilidades CRITICAL y HIGH
+          - ✅ Considera usar imágenes base más recientes y mantenidas
+          
+          ### Mejores Prácticas Docker
+          - 🔸 Usa imágenes base mínimas (alpine, distroless)
+          - 🔸 No ejecutes contenedores como root (USER no-root)
+          - 🔸 Minimiza el número de capas en el Dockerfile
+          - 🔸 Usa .dockerignore para excluir archivos innecesarios
+          - 🔸 Ejecuta contenedores en modo read-only cuando sea posible
+          - 🔸 Escanea regularmente tus imágenes en busca de vulnerabilidades
+          
+          ## ⚡ Sugerencias de Rendimiento
+          
+          ### Optimización de Imagen
+          - 📦 Reduce el tamaño de la imagen eliminando archivos temporales
+          - 📦 Usa multi-stage builds para separar build y runtime
+          - 📦 Combina comandos RUN para reducir capas
+          - 📦 Limpia caches de package managers (apt-get clean, npm cache clean)
+          
+          ### Ejemplo de Multi-Stage Build:
+          ```dockerfile
+          # Stage 1: Build
+          FROM node:18-alpine AS builder
+          WORKDIR /app
+          COPY package*.json ./
+          RUN npm ci --only=production
+          
+          # Stage 2: Runtime
+          FROM node:18-alpine
+          RUN addgroup -g 1001 -S nodejs && adduser -S nodejs -u 1001
+          WORKDIR /app
+          COPY --from=builder --chown=nodejs:nodejs /app/node_modules ./node_modules
+          COPY --chown=nodejs:nodejs . .
+          USER nodejs
+          EXPOSE 3000
+          CMD ["node", "server.js"]
+          ```
+          
+          ### Optimización de Runtime
+          - ⚡ Configura health checks adecuados
+          - ⚡ Establece límites de recursos (CPU, memoria)
+          - ⚡ Usa variables de entorno para configuración
+          - ⚡ Implementa graceful shutdown
+          
+          ## 🎯 Checklist de Acciones Recomendadas
+          
+          - [ ] Corregir vulnerabilidades CRITICAL detectadas por Trivy
+          - [ ] Implementar multi-stage build si no existe
+          - [ ] Cambiar a imagen base alpine o distroless
+          - [ ] Agregar usuario no-root
+          - [ ] Optimizar capas del Dockerfile
+          - [ ] Implementar health checks
+          - [ ] Configurar resource limits en Kubernetes
+          - [ ] Actualizar dependencias vulnerables
+          - [ ] Agregar .dockerignore
+          - [ ] Documentar variables de entorno necesarias
+          
+          ## 📚 Referencias
+          - [Docker Best Practices](https://docs.docker.com/develop/dev-best-practices/)
+          - [Kubernetes Security Best Practices](https://kubernetes.io/docs/concepts/security/pod-security-standards/)
+          - [OWASP Docker Security Cheat Sheet](https://cheatsheetseries.owasp.org/cheatsheets/Docker_Security_Cheat_Sheet.html)
+          
+          EOF
+          
+          cat recommendations.md >> $GITHUB_STEP_SUMMARY
+
+      - name: Upload recommendations
+        uses: actions/upload-artifact@v3
+        with:
+          name: security-performance-recommendations
+          path: recommendations.md
+
+      - name: Comment PR (si existe)
+        if: github.event_name == 'pull_request'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const fs = require('fs');
+            const recommendations = fs.readFileSync('recommendations.md', 'utf8');
+            
+            github.rest.issues.createComment({
+              issue_number: context.issue.number,
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              body: recommendations
+            });
