@@ -65,23 +65,23 @@ jobs:
           uses: actions/checkout@v4
           with:
             fetch-depth: 0  # Necesario para análisis completo de Sonar
-
-        - name: Clonar el repositorio app
-          uses: actions/checkout@v4
-          with:
-              repository: dariasmoises979-blip/app
-              ref: main
-              path: pipeline-build
-              fetch-depth: 1
-              token: ${{ secrets.GITHUB_TOKEN }}
-  
+ 
         - name: Configurar Python
           uses: actions/setup-python@v5
           with:
             python-version: '3.10'
-  
+        
+        - name: Clonar el repositorio app
+          uses: actions/checkout@v4
+          with:
+                repository: dariasmoises979-blip/app
+                ref: main
+                path: pipeline-build
+                fetch-depth: 1
+                token: ${{ secrets.GITHUB_TOKEN }}
+
         - name: Instalar dependencias
-          working-directory: ./app
+          working-directory: ./pipeline-build
           run: |
               python -m pip install --upgrade pip
               pip install -r local/requirements.txt
@@ -90,7 +90,7 @@ jobs:
         - name: Analizar con SonarCloud
           uses: SonarSource/sonarcloud-github-action@v2
           with:
-            projectBaseDir: ./app  # 🔹 Analiza el contenido de app
+            projectBaseDir: ./pipeline-build   # 🔹 Analiza el contenido de app
           env:
             SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
             SONAR_HOST_URL: https://sonarcloud.io
