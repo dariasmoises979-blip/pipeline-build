@@ -23,25 +23,6 @@ on:
         required: false
         type: string
         default: 'dev'
-      # ═══════════════════════════════════════════════════════════
-      # 🆕 NUEVOS INPUTS PARA CLONAR REPOSITORIO EXTERNO
-      # ═══════════════════════════════════════════════════════════
-      external_repo:
-        description: 'Repositorio externo a clonar (ej: dariasmoises979-blip/app)'
-        required: false
-        type: string
-        default: ''
-      external_repo_ref:
-        description: 'Branch/tag/SHA del repositorio externo (default: main)'
-        required: false
-        type: string
-        default: 'main'
-      external_repo_path:
-        description: 'Directorio donde clonar el repo externo (default: ./external)'
-        required: false
-        type: string
-        default: './external'
-      # ═══════════════════════════════════════════════════════════
       dockerfile_path:
         description: 'Ruta al Dockerfile (relativo al contexto)'
         required: false
@@ -79,9 +60,6 @@ on:
       DOCKERHUB_TOKEN:
         description: 'Token de autenticación de Docker Hub'
         required: true
-      EXTERNAL_REPO_TOKEN:
-        description: 'Token para clonar repositorio privado (opcional)'
-        required: false
       EXTERNAL_REPO_TOKEN:
         description: 'Token para clonar repositorio privado (opcional)'
         required: false
@@ -135,6 +113,9 @@ jobs:
           if [[ -n "${{ inputs.external_repo }}" ]]; then
             echo "📦 External repo directory (${{ inputs.external_repo_path }}):"
             ls -la ${{ inputs.external_repo_path }} || echo "❌ Directory not found"
+            echo ""
+            echo "📦 External repo subdirectories:"
+            ls -la ${{ inputs.external_repo_path }}/local || echo "❌ local/ not found"
             echo ""
           fi
           echo "🔍 Build context (${{ inputs.build_context }}):"
