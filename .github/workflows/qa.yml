@@ -1,12 +1,11 @@
 name: Reusable QA Workflow
 
 on:
-  workflow_call:  # permite que otro workflow (padre) lo invoque
-    inputs:
-      sonar-token:
+  workflow_call:
+    secrets:
+      SONAR_TOKEN:
         required: false
-        type: string
-        description: "Token de SonarCloud"
+    inputs:
       branch:
         required: false
         type: string
@@ -64,9 +63,8 @@ jobs:
 
       - name: Ejecutar análisis de SonarCloud
         run: echo "Detección temprana de errores y malas prácticas"
-        # Si necesitas usar el token:
-        # env:
-        #   SONAR_TOKEN: ${{ inputs.sonar-token }}
+        env:
+          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
     needs: test-lint-qa
 
   secrets_detection:
