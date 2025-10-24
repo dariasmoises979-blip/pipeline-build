@@ -1,15 +1,16 @@
-name: Reusable Date Workflow
+name: Reusable QA Workflow
 
 on:
   workflow_call:  # permite que otro workflow (padre) lo invoque
-    #secrets:
-    #  SONAR_TOKEN:
-    #    required: true
-    #inputs:
-    #  branch:
-    #    required: false
-    #    type: string
-    #    default: "qa"
+    inputs:
+      sonar-token:
+        required: false
+        type: string
+        description: "Token de SonarCloud"
+      branch:
+        required: false
+        type: string
+        default: "qa"
 
 permissions:
   actions: read
@@ -41,7 +42,7 @@ jobs:
       - name: Checkout del código
         uses: actions/checkout@v4
 
-      - name: Ejecutar análisis de SonarCloud
+      - name: Ejecutar análisis de integración
         run: echo "Comprueba que cada función o módulo funciona bien individualmente"
     needs: test-qa
 
@@ -52,7 +53,7 @@ jobs:
         uses: actions/checkout@v4
 
       - name: Ejecutar análisis
-        run: echo "DControl de estilo, errores comunes"
+        run: echo "Control de estilo, errores comunes"
     needs: test-integration-qa
 
   sonarcloud-qa:
@@ -63,6 +64,9 @@ jobs:
 
       - name: Ejecutar análisis de SonarCloud
         run: echo "Detección temprana de errores y malas prácticas"
+        # Si necesitas usar el token:
+        # env:
+        #   SONAR_TOKEN: ${{ inputs.sonar-token }}
     needs: test-lint-qa
 
   secrets_detection:
@@ -79,17 +83,16 @@ jobs:
       - name: Inicializar CodeQL
         uses: github/codeql-action/init@v3
         with:
-          languages: python # o el lenguaje que uses
+          languages: python
 
       - name: Ejecutar análisis CodeQL
         uses: github/codeql-action/analyze@v3
         with:
           category: "secret"
 
-      - name: Ejecutar análisis de SonarCloud
+      - name: Mensaje de confirmación
         run: echo "Asegura que no se suban claves o contraseñas"
     needs: sonarcloud-qa
-
 
   security_vulnerabilities:
     runs-on: ubuntu-latest
@@ -97,24 +100,16 @@ jobs:
       - name: Checkout del código
         uses: actions/checkout@v4
 
-      # Paso 1: Inicializa CodeQL
       - name: Inicializar CodeQL
-        uses: github/codeql-action/init@v2
+        uses: github/codeql-action/init@v3
         with:
-          languages: python  # o python, java, cpp, etc. según tu proyecto
-          # Puedes agregar más lenguajes separados por coma
+          languages: python
 
-      # Paso 2: Compila o prepara el código si es necesario
-      # (por ejemplo, npm install, mvn package, etc.)
-      # - run: npm install
-
-      # Paso 3: Ejecuta el análisis de CodeQL
       - name: Ejecutar análisis de CodeQL
-        uses: github/codeql-action/analyze@v2
+        uses: github/codeql-action/analyze@v3
         with:
           category: "security"
 
-      # Paso 4: Ejecutar análisis adicional (opcional)
-      - name: Ejecutar análisis de SonarCloud
+      - name: Mensaje de confirmación
         run: echo "Identifica vulnerabilidades de seguridad en el código"
     needs: secrets_detection
