@@ -55,7 +55,7 @@ jobs:
         run: echo "Control de estilo, errores comunes"
     needs: test-integration-qa
 
-    sonarcloud-qa:
+  sonarcloud-qa:
       name: Análisis de SonarCloud
       runs-on: ubuntu-latest
       needs: test-lint-qa
