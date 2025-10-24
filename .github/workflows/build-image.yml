@@ -23,6 +23,25 @@ on:
         required: false
         type: string
         default: 'dev'
+      # ═══════════════════════════════════════════════════════════
+      # 🆕 NUEVOS INPUTS PARA CLONAR REPOSITORIO EXTERNO
+      # ═══════════════════════════════════════════════════════════
+      external_repo:
+        description: 'Repositorio externo a clonar (ej: dariasmoises979-blip/app)'
+        required: false
+        type: string
+        default: ''
+      external_repo_ref:
+        description: 'Branch/tag/SHA del repositorio externo (default: main)'
+        required: false
+        type: string
+        default: 'main'
+      external_repo_path:
+        description: 'Directorio donde clonar el repo externo (default: ./external)'
+        required: false
+        type: string
+        default: './external'
+      # ═══════════════════════════════════════════════════════════
       dockerfile_path:
         description: 'Ruta al Dockerfile (relativo al contexto)'
         required: false
@@ -38,10 +57,34 @@ on:
         required: false
         type: string
         default: ''
+      # ═══════════════════════════════════════════════════════════
+      # 🆕 INPUTS PARA REPOSITORIO EXTERNO
+      # ═══════════════════════════════════════════════════════════
+      external_repo:
+        description: 'Repositorio externo a clonar (ej: dariasmoises979-blip/app)'
+        required: false
+        type: string
+        default: ''
+      external_repo_ref:
+        description: 'Branch/tag/SHA del repositorio externo (default: main)'
+        required: false
+        type: string
+        default: 'main'
+      external_repo_path:
+        description: 'Directorio donde clonar el repo externo (default: ./external)'
+        required: false
+        type: string
+        default: './external'
     secrets:
       DOCKERHUB_TOKEN:
         description: 'Token de autenticación de Docker Hub'
         required: true
+      EXTERNAL_REPO_TOKEN:
+        description: 'Token para clonar repositorio privado (opcional)'
+        required: false
+      EXTERNAL_REPO_TOKEN:
+        description: 'Token para clonar repositorio privado (opcional)'
+        required: false
 
 jobs:
   # ═══════════════════════════════════════════════════════════
@@ -53,70 +96,81 @@ jobs:
     
     steps:
       # ═══════════════════════════════════════════════════════════
-      # 📥 PASO 1: CHECKOUT DEL CÓDIGO FUENTE
+      # 📥 PASO 1: CHECKOUT DEL REPOSITORIO ACTUAL
       # ═══════════════════════════════════════════════════════════
-      # Clona el repositorio con todo el historial para tener
-      # acceso completo a commits y tags
-      - name: Checkout repository
+      - name: Checkout current repository
         uses: actions/checkout@v4
         with:
-          fetch-depth: 0  # 📚 Obtiene todo el historial (necesario para tags y SHA)
-          # Si es un PR, usa el SHA del head del PR, sino usa el SHA actual
+          fetch-depth: 0
           ref: ${{ github.event.pull_request.head.sha || github.sha }}
-      - name: Debug credentials
+
+      # ═══════════════════════════════════════════════════════════
+      # 📥 PASO 2: CHECKOUT DEL REPOSITORIO EXTERNO (OPCIONAL)
+      # ═══════════════════════════════════════════════════════════
+      # Solo se ejecuta si se especificó un repositorio externo
+      - name: Checkout external repository
+        if: inputs.external_repo != ''
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ inputs.external_repo }}
+          ref: ${{ inputs.external_repo_ref }}
+          path: ${{ inputs.external_repo_path }}
+          token: ${{ secrets.EXTERNAL_REPO_TOKEN || github.token }}
+          fetch-depth: 0
+
+      # ═══════════════════════════════════════════════════════════
+      # 🔍 PASO 3: VERIFICAR ESTRUCTURA DE ARCHIVOS
+      # ═══════════════════════════════════════════════════════════
+      - name: Verify file structure
         run: |
-            echo "Username: ${{ inputs.dockerhub_username }}"
-            echo "Token exists: ${{ secrets.DOCKERHUB_TOKEN != '' }}"
-            echo "Token length: $(echo '${{ secrets.DOCKERHUB_TOKEN }}' | wc -c)"
+          echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+          echo "📂 FILE STRUCTURE VERIFICATION"
+          echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+          echo "📁 Current directory:"
+          pwd
+          echo ""
+          echo "📋 Directory listing:"
+          ls -la
+          echo ""
+          if [[ -n "${{ inputs.external_repo }}" ]]; then
+            echo "📦 External repo directory (${{ inputs.external_repo_path }}):"
+            ls -la ${{ inputs.external_repo_path }} || echo "❌ Directory not found"
+            echo ""
+          fi
+          echo "🔍 Build context (${{ inputs.build_context }}):"
+          ls -la ${{ inputs.build_context }} || echo "❌ Directory not found"
+          echo ""
+          echo "📄 Dockerfile location (${{ inputs.dockerfile_path }}):"
+          ls -la ${{ inputs.dockerfile_path }} || echo "❌ File not found"
+          echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+
       # ═══════════════════════════════════════════════════════════
-      # 🏷️ PASO 2: GENERAR TAGS DINÁMICOS
+      # 🏷️ PASO 4: GENERAR TAGS DINÁMICOS
       # ═══════════════════════════════════════════════════════════
-      # Crea tags basados en: entorno, SHA del commit, rama, etc.
       - name: Generate dynamic tags
         id: tags
         run: |
-          # ───────────────────────────────────────────────────────
-          # Variables básicas del contexto
-          # ───────────────────────────────────────────────────────
           ENVIRONMENT="${{ inputs.environment }}"
           COMMIT_SHA="${{ github.sha }}"
-          SHORT_SHA="${COMMIT_SHA:0:7}"  # Primeros 7 caracteres del SHA
+          SHORT_SHA="${COMMIT_SHA:0:7}"
           BRANCH_NAME="${{ github.ref_name }}"
           
-          # ───────────────────────────────────────────────────────
-          # Construir array de tags
-          # ───────────────────────────────────────────────────────
           TAGS=()
-          
-          # Tag 1: Entorno (pro, pre, staging, dev)
           TAGS+=("${ENVIRONMENT}")
-          
-          # Tag 2: Entorno + SHA corto (ej: pro-a1b2c3d)
           TAGS+=("${ENVIRONMENT}-${SHORT_SHA}")
-          
-          # Tag 3: SHA completo (ej: a1b2c3d4e5f6g7h8...)
           TAGS+=("${COMMIT_SHA}")
-          
-          # Tag 4: SHA corto (ej: a1b2c3d)
           TAGS+=("${SHORT_SHA}")
           
-          # Tag 5: Si es la rama principal, añadir "latest"
           if [[ "${BRANCH_NAME}" == "main" || "${BRANCH_NAME}" == "master" ]]; then
             TAGS+=("latest")
           fi
           
-          # Tag 6: Rama + SHA (ej: develop-a1b2c3d)
-          # Reemplazar '/' por '-' en el nombre de la rama
           SAFE_BRANCH_NAME=$(echo "${BRANCH_NAME}" | sed 's/\//-/g')
           TAGS+=("${SAFE_BRANCH_NAME}-${SHORT_SHA}")
           
-          # ───────────────────────────────────────────────────────
-          # Añadir tags adicionales si se proporcionaron
-          # ───────────────────────────────────────────────────────
           if [[ -n "${{ inputs.additional_tags }}" ]]; then
             IFS=',' read -ra EXTRA_TAGS <<< "${{ inputs.additional_tags }}"
             for tag in "${EXTRA_TAGS[@]}"; do
-              # Eliminar espacios en blanco
               tag=$(echo "${tag}" | xargs)
               if [[ -n "${tag}" ]]; then
                 TAGS+=("${tag}")
@@ -124,24 +178,14 @@ jobs:
             done
           fi
           
-          # ───────────────────────────────────────────────────────
-          # Formatear tags para Docker (username/image:tag)
-          # ───────────────────────────────────────────────────────
           DOCKER_TAGS=""
           for tag in "${TAGS[@]}"; do
             DOCKER_TAGS="${DOCKER_TAGS}${{ inputs.dockerhub_username }}/${{ inputs.docker_image }}:${tag},"
           done
-          # Eliminar la última coma
           DOCKER_TAGS="${DOCKER_TAGS%,}"
           
-          # ───────────────────────────────────────────────────────
-          # Guardar tags para usar en steps posteriores
-          # ───────────────────────────────────────────────────────
           echo "tags=${DOCKER_TAGS}" >> $GITHUB_OUTPUT
           
-          # ───────────────────────────────────────────────────────
-          # Log: Mostrar todos los tags generados
-          # ───────────────────────────────────────────────────────
           echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
           echo "🏷️  TAGS GENERADOS PARA LA IMAGEN DOCKER"
           echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
@@ -149,6 +193,10 @@ jobs:
           echo "🌍 Entorno: ${ENVIRONMENT}"
           echo "🔗 Commit SHA: ${COMMIT_SHA}"
           echo "🌿 Rama: ${BRANCH_NAME}"
+          if [[ -n "${{ inputs.external_repo }}" ]]; then
+            echo "📦 Repositorio externo: ${{ inputs.external_repo }}"
+            echo "🌿 Ref externo: ${{ inputs.external_repo_ref }}"
+          fi
           echo ""
           echo "📋 Lista de tags:"
           for tag in "${TAGS[@]}"; do
@@ -157,53 +205,43 @@ jobs:
           echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
 
       # ═══════════════════════════════════════════════════════════
-      # ⚙️ PASO 3: CONFIGURAR DOCKER BUILDX
+      # ⚙️ PASO 5: CONFIGURAR DOCKER BUILDX
       # ═══════════════════════════════════════════════════════════
-      # Docker Buildx permite builds más eficientes con cache
       - name: Setup Docker Buildx
         uses: docker/setup-buildx-action@v3
         with:
-          driver: docker-container  # 🚀 Evita errores de cache y mejora performance
+          driver: docker-container
 
       # ═══════════════════════════════════════════════════════════
-      # 🔐 PASO 4: LOGIN EN DOCKER HUB
+      # 🔐 PASO 6: LOGIN EN DOCKER HUB
       # ═══════════════════════════════════════════════════════════
-      # Autentica con Docker Hub para poder hacer push de imágenes
       - name: Login to Docker Hub
         uses: docker/login-action@v3
         with:
           username: ${{ inputs.dockerhub_username }}
           password: ${{ secrets.DOCKERHUB_TOKEN }}
-          logout: true  # 🔒 Logout automático al finalizar (seguridad)
+          logout: true
 
       # ═══════════════════════════════════════════════════════════
-      # 🏗️ PASO 5: BUILD & PUSH DE LA IMAGEN DOCKER
+      # 🏗️ PASO 7: BUILD & PUSH DE LA IMAGEN DOCKER
       # ═══════════════════════════════════════════════════════════
-      # Construye la imagen y la sube a Docker Hub con todos los tags
       - name: Build and Push Docker Image
         uses: docker/build-push-action@v6
         with:
-          context: ${{ inputs.build_context }}      # 📂 Directorio de contexto
-          file: ${{ inputs.dockerfile_path }}        # 📄 Ruta al Dockerfile
-          push: true                                 # ⬆️ Hacer push a Docker Hub
-          tags: ${{ steps.tags.outputs.tags }}      # 🏷️ Todos los tags generados
-          # ───────────────────────────────────────────────────────
-          # Cache de GitHub Actions para acelerar builds
-          # ───────────────────────────────────────────────────────
-          cache-from: type=gha                       # 📥 Usar cache de builds previos
-          cache-to: type=gha,mode=max               # 📤 Guardar cache para futuros builds
-          # ───────────────────────────────────────────────────────
-          # Build args opcionales (se pueden pasar variables)
-          # ───────────────────────────────────────────────────────
+          context: ${{ inputs.build_context }}
+          file: ${{ inputs.dockerfile_path }}
+          push: true
+          tags: ${{ steps.tags.outputs.tags }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
           build-args: |
             BUILD_DATE=${{ github.event.head_commit.timestamp }}
             VCS_REF=${{ github.sha }}
             VERSION=${{ inputs.environment }}-${{ github.sha }}
 
       # ═══════════════════════════════════════════════════════════
-      # 📊 PASO 6: REPORTE DE BUILD EXITOSO
+      # 📊 PASO 8: REPORTE DE BUILD EXITOSO
       # ═══════════════════════════════════════════════════════════
-      # Muestra información detallada del build completado
       - name: Build Summary Report
         if: success()
         run: |
@@ -216,6 +254,9 @@ jobs:
           echo "🔗 Commit SHA: ${{ github.sha }}"
           echo "👤 Triggered by: ${{ github.actor }}"
           echo "🕐 Date: $(date -u +'%Y-%m-%d %H:%M:%S UTC')"
+          if [[ -n "${{ inputs.external_repo }}" ]]; then
+            echo "📦 External Repo: ${{ inputs.external_repo }} @ ${{ inputs.external_repo_ref }}"
+          fi
           echo ""
           echo "📋 Pull Commands:"
           echo "   docker pull ${{ inputs.dockerhub_username }}/${{ inputs.docker_image }}:${{ inputs.environment }}"
@@ -225,9 +266,8 @@ jobs:
           echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
 
       # ═══════════════════════════════════════════════════════════
-      # ❌ PASO 7: MANEJO DE ERRORES
+      # ❌ PASO 9: MANEJO DE ERRORES
       # ═══════════════════════════════════════════════════════════
-      # Si el build falla, proporciona información útil para debugging
       - name: Build Failure Report
         if: failure()
         run: |
@@ -240,12 +280,17 @@ jobs:
           echo "   • Docker Hub authentication issues"
           echo "   • Network or timeout problems"
           echo "   • Insufficient disk space"
+          echo "   • External repository not accessible"
           echo ""
           echo "🔍 Debug steps:"
           echo "   1. Check Dockerfile at: ${{ inputs.dockerfile_path }}"
           echo "   2. Verify build context: ${{ inputs.build_context }}"
           echo "   3. Review Docker Hub credentials"
-          echo "   4. Check workflow logs above for specific errors"
+          if [[ -n "${{ inputs.external_repo }}" ]]; then
+            echo "   4. Verify external repo access: ${{ inputs.external_repo }}"
+            echo "   5. Check EXTERNAL_REPO_TOKEN if repo is private"
+          fi
+          echo "   6. Check workflow logs above for specific errors"
           echo ""
           echo "🔗 Workflow Run: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
           echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
