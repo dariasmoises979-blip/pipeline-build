@@ -1,0 +1,118 @@
+name: Deploy a GKE con Aprobación Manual
+
+on:
+  workflow_dispatch:  # Permite ejecutar manualmente el workflow
+    inputs:
+      environment:
+        description: 'Entorno de despliegue'
+        required: true
+        type: choice
+        options:
+          - development
+          - staging
+          - production
+
+env:
+  PROJECT_ID: ${{ secrets.GCP_PROJECT_ID }}
+  GKE_CLUSTER: ${{ secrets.GKE_CLUSTER_NAME }}
+  GKE_ZONE: ${{ secrets.GKE_ZONE }}
+  IMAGE_NAME: mi-aplicacion
+
+jobs:
+  build:
+    name: Construir imagen Docker
+    runs-on: ubuntu-latest
+    
+    outputs:
+      image_tag: ${{ steps.image_tag.outputs.tag }}
+    
+    steps:
+      - name: Checkout código
+        uses: actions/checkout@v4
+
+      - name: Generar tag de imagen
+        id: image_tag
+        run: |
+          TAG="gcr.io/${{ env.PROJECT_ID }}/${{ env.IMAGE_NAME }}:${{ github.sha }}"
+          echo "tag=$TAG" >> $GITHUB_OUTPUT
+          echo "Image tag: $TAG"
+
+      - name: Autenticar en Google Cloud
+        uses: google-github-actions/auth@v2
+        with:
+          credentials_json: ${{ secrets.GCP_SA_KEY }}
+
+      - name: Configurar Cloud SDK
+        uses: google-github-actions/setup-gcloud@v2
+
+      - name: Configurar Docker para GCR
+        run: |
+          gcloud auth configure-docker
+
+      - name: Construir imagen Docker
+        run: |
+          docker build -t ${{ steps.image_tag.outputs.tag }} .
+
+      - name: Push imagen a GCR
+        run: |
+          docker push ${{ steps.image_tag.outputs.tag }}
+
+  approval:
+    name: Aprobación manual
+    runs-on: ubuntu-latest
+    needs: build
+    environment: 
+      name: ${{ github.event.inputs.environment }}
+    
+    steps:
+      - name: Esperar aprobación
+        run: |
+          echo "✅ Despliegue aprobado para ${{ github.event.inputs.environment }}"
+          echo "Imagen a desplegar: ${{ needs.build.outputs.image_tag }}"
+
+  deploy:
+    name: Desplegar a GKE
+    runs-on: ubuntu-latest
+    needs: [build, approval]
+    
+    steps:
+      - name: Checkout código
+        uses: actions/checkout@v4
+
+      - name: Autenticar en Google Cloud
+        uses: google-github-actions/auth@v2
+        with:
+          credentials_json: ${{ secrets.GCP_SA_KEY }}
+
+      - name: Configurar Cloud SDK
+        uses: google-github-actions/setup-gcloud@v2
+
+      - name: Instalar gke-gcloud-auth-plugin
+        run: |
+          gcloud components install gke-gcloud-auth-plugin
+
+      - name: Conectar al cluster GKE
+        run: |
+          gcloud container clusters get-credentials ${{ env.GKE_CLUSTER }} \
+            --zone ${{ env.GKE_ZONE }} \
+            --project ${{ env.PROJECT_ID }}
+
+      - name: Desplegar a Kubernetes
+        run: |
+          kubectl set image deployment/mi-aplicacion \
+            mi-aplicacion=${{ needs.build.outputs.image_tag }} \
+            -n ${{ github.event.inputs.environment }}
+          
+          kubectl rollout status deployment/mi-aplicacion \
+            -n ${{ github.event.inputs.environment }} \
+            --timeout=5m
+
+      - name: Verificar despliegue
+        run: |
+          kubectl get pods -n ${{ github.event.inputs.environment }}
+          kubectl get services -n ${{ github.event.inputs.environment }}
+
+      - name: Notificar éxito
+        run: |
+          echo "🚀 Despliegue completado exitosamente en ${{ github.event.inputs.environment }}"
+          echo "Imagen desplegada: ${{ needs.build.outputs.image_tag }}"

@@ -92,15 +92,14 @@ jobs:
         uses: actions/checkout@v4
 
       # ✅ CORREGIDO: Usar inputs y token correcto
-      - name: 🔄 Clonar repositorio externo
-        if: inputs.external_repo != ''
+      - name: 🔄 Clonar el repositorio externo (app)
         uses: actions/checkout@v4
         with:
           repository: ${{ inputs.external_repo }}
           ref: ${{ inputs.external_repo_ref }}
           path: ${{ inputs.external_repo_path }}
-          token: ${{ secrets.EXTERNAL_REPO_TOKEN }}
-          fetch-depth: 1
+          fetch-depth: 0
+          token: ${{ secrets.EXTERNAL_REPO_TOKEN }}  # ✅ Usar el secret correcto
 
       - name: 🐳 Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
