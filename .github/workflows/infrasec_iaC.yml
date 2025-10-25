@@ -1,0 +1,171 @@
+########################################
+# 🛡️ WORKFLOW REUSABLE: InfraSec & IaC Quality Analysis
+# Autor: @turingsecurity (basado en tu estilo Docker)
+# Escanea Terraform, Ansible, Helm y YAML (Kubernetes)
+# Busca malas prácticas, vulnerabilidades y errores de configuración
+########################################
+
+name: InfraSec & IaC Quality Analysis
+
+on:
+  workflow_call:
+    inputs:
+      source_repo:
+      description: "Repositorio con la infraestructura a analizar"
+      required: true
+      type: string
+      source_ref:
+      description: "Branch o tag a analizar"
+      required: false
+      type: string
+      default: "main"
+secrets:
+GITHUB_TOKEN:
+required: true
+
+permissions:
+contents: read
+security-events: write
+pull-requests: write
+issues: write
+
+jobs:
+  iac-analysis:
+    name: 🔍 InfraSec & IaC Quality Scan
+    runs-on: ubuntu-latest
+  steps:
+    ########################################
+    # 🔹 CHECKOUT
+    ########################################
+    - name: 📦 Checkout del repositorio de infraestructura
+      uses: actions/checkout@v4
+      with:
+        repository: ${{ inputs.source_repo }}
+        ref: ${{ inputs.source_ref }}
+        fetch-depth: 0
+
+  ########################################
+  # 🔹 TERRAFORM
+  ########################################
+  - name: 🌍 Terraform Validate
+    run: |
+      echo "▶️ Ejecutando terraform validate"
+      terraform init -backend=false || true
+      terraform validate || true
+
+  - name: 🔐 tfsec - Terraform Security Scan
+    uses: aquasecurity/tfsec-action@v1.0.3
+    with:
+      working-directory: .
+      sarif_file: tfsec-results.sarif
+
+  - name: 📋 Subir tfsec SARIF
+    uses: github/codeql-action/upload-sarif@v3
+    with:
+      sarif_file: tfsec-results.sarif
+      category: terraform
+
+  - name: 🧩 Checkov - IaC Security Scan
+    uses: bridgecrewio/checkov-action@v12
+    with:
+      directory: .
+      output_format: sarif
+      output_file_path: checkov-results.sarif
+
+  - name: 📋 Subir Checkov SARIF
+    uses: github/codeql-action/upload-sarif@v3
+    with:
+      sarif_file: checkov-results.sarif
+      category: checkov
+
+  ########################################
+  # 🔹 ANSIBLE
+  ########################################
+  - name: ⚙️ Ansible Lint
+    run: |
+      echo "▶️ Ejecutando ansible-lint"
+      pip install ansible ansible-lint
+      ansible-lint -v || true
+
+  ########################################
+  # 🔹 HELM y YAML
+  ########################################
+  - name: ⛵ Helm Lint
+    run: |
+      echo "▶️ Analizando Helm Charts"
+      find . -name Chart.yaml -exec dirname {} \; | while read chart; do
+        echo "📦 Linting chart: $chart"
+        helm lint "$chart" || true
+      done
+
+  - name: 🧠 Kube-score (Helm / YAML best practices)
+    run: |
+      echo "▶️ Ejecutando kube-score"
+      wget -qO- https://github.com/zegl/kube-score/releases/latest/download/kube-score_ubuntu_amd64.tar.gz | tar xvz
+      sudo mv kube-score /usr/local/bin/
+      find . -type f \( -name "*.yaml" -o -name "*.yml" \) -print0 | xargs -0 kube-score score --ignore-test container-security-context || true
+
+  - name: 🧹 YAML Lint
+    run: |
+      echo "▶️ Ejecutando yamllint"
+      pip install yamllint
+      yamllint -f parsable . || true
+
+  ########################################
+  # 🔹 REPORT CONSOLIDATION
+  ########################################
+  - name: 📊 Generar reporte consolidado
+    run: |
+      echo "# 🛡️ InfraSec & IaC Report" > IAC_REPORT.md
+      echo "" >> IAC_REPORT.md
+      echo "## 🔍 Herramientas ejecutadas" >> IAC_REPORT.md
+      echo "- Terraform: tfsec, checkov, validate" >> IAC_REPORT.md
+      echo "- Ansible: ansible-lint" >> IAC_REPORT.md
+      echo "- Helm / YAML: helm lint, kube-score, yamllint" >> IAC_REPORT.md
+      echo "" >> IAC_REPORT.md
+      echo "## 📋 Resultados" >> IAC_REPORT.md
+      echo "Consulta la pestaña 'Security' o descarga los artefactos del pipeline." >> IAC_REPORT.md
+      echo "" >> IAC_REPORT.md
+      echo "### 🧠 Recomendaciones" >> IAC_REPORT.md
+      echo "- Usa 'terraform fmt' y 'ansible-lint --fix' para mantener formato." >> IAC_REPORT.md
+      echo "- Aplica buenas prácticas CIS/NIST mediante Checkov policies." >> IAC_REPORT.md
+      echo "- Considera habilitar escaneo automático en PRs." >> IAC_REPORT.md
+
+  - name: 📤 Subir artefactos
+    uses: actions/upload-artifact@v4
+    with:
+      name: iac-security-reports
+      path: |
+        IAC_REPORT.md
+        tfsec-results.sarif
+        checkov-results.sarif
+      retention-days: 30
+
+  ########################################
+  # 🔹 ISSUE AUTOMATION
+  ########################################
+  - name: 🚨 Crear issue si hay hallazgos críticos
+    if: always()
+    uses: actions/github-script@v7
+    with:
+      script: |
+        const fs = require('fs');
+        const findings = ['tfsec-results.sarif', 'checkov-results.sarif'].filter(f => fs.existsSync(f));
+        let critical = 0;
+        for (const f of findings) {
+          const report = JSON.parse(fs.readFileSync(f, 'utf8'));
+          for (const run of report.runs || []) {
+            for (const result of run.results || []) {
+              if (result.level === 'error' || result.level === 'high') critical++;
+            }
+          }
+        }
+        if (critical > 0) {
+          github.rest.issues.create({
+            owner: context.repo.owner,
+            repo: context.repo.repo,
+            title: `🚨 ${critical} hallazgos críticos detectados en IaC`,
+            body: `Se detectaron ${critical} findings críticos durante el análisis de infraestructura.\n\nConsulta los artefactos en el workflow **InfraSec & IaC Quality Analysis**.`,
+            labels: ['security', 'iac', 'critical']
+          });
+        }
