@@ -16,7 +16,7 @@ on:
 
 permissions:
   actions: read
-  contents: read
+  contents: write
 
 jobs:
   # ═══════════════════════════════════════════════════════════
@@ -25,7 +25,7 @@ jobs:
   test-unit:
     name: 🧪 Unit Tests
     runs-on: ubuntu-latest
-
+    
     steps:
       - name: 🔄 Clonar el repositorio app
         uses: actions/checkout@v4
@@ -41,7 +41,7 @@ jobs:
 
       - name: 📥 Instalar dependencias
         run: |
-          pip install flask pytest
+          pip install -r requirements.txt
 
       - name: ▶️ Ejecutar tests unitarios
         run: pytest -v
