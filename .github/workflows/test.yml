@@ -9,6 +9,19 @@ name: Reusable Date Workflow
 # 🔧 Definir como workflow reusable
 on:
   workflow_call:
+    inputs:
+      external_repo:
+        required: true
+        type: string
+        description: 'Nombre del repositorio externo'
+      external_repo_ref:
+        required: true
+        type: string
+        description: 'Rama o tag del repositorio externo'
+      external_repo_path:
+        required: false
+        type: string
+        description: 'Ruta donde clonar el repositorio externo'
     secrets:
       EXTERNAL_REPO_TOKEN: 
         required: true
