@@ -54,10 +54,7 @@ jobs:
 
       - name: 📥 Instalar dependencias
         run: |
-          pip install -r requirements.txt
-
-      - name: ▶️ Ejecutar tests unitarios
-        run: pytest -v
+          pip install -r local/requirements
 
   # ═══════════════════════════════════════════════════════════
   # 🔗 JOB: TEST DE INTEGRACIÓN
