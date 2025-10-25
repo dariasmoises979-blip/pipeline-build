@@ -69,14 +69,18 @@ jobs:
           token: ${{ secrets.EXTERNAL_REPO_TOKEN }}
           path: ${{ inputs.external_repo_path }}
           fetch-depth: 1
+
       - name: 🔍 Verificar repo clonado
         run: |
             echo "Contenido de ${{ inputs.external_repo_path }}:"
             ls -la ${{ inputs.external_repo_path }}
+            pwd
             
             echo -e "\nVerificando Dockerfile:"
-            test -f "${{ inputs.external_repo_path }}/${{ inputs.dockerfile_path }}" && echo "✅ Dockerfile OK" || (echo "❌ Dockerfile no encontrado" && exit 1)
-
+            DOCKERFILE_FULL_PATH="${{ inputs.external_repo_path }}/${{ inputs.dockerfile_path }}"
+            echo "Buscando: $DOCKERFILE_FULL_PATH"
+            test -f "$DOCKERFILE_FULL_PATH" && echo "✅ Dockerfile OK" || (echo "❌ Dockerfile no encontrado" && exit 1)
+      
       - name: 🐳 Setup Docker Buildx
         uses: docker/setup-buildx-action@v3
 
