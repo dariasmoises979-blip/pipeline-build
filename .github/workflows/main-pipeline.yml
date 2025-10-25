@@ -1,18 +1,87 @@
-########################################
-# 🚀 PIPELINE QA - Con Modelo Híbrido
-# Tests → Build Híbrido (con security) → Análisis Completo
-########################################
+name: Main Pipeline (Reusable)
 
-name: QA Pipeline with Hybrid Security
-
+# ═══════════════════════════════════════════════════════════
+# 🔧 CONFIGURACIÓN PARA WORKFLOW REUTILIZABLE
+# ═══════════════════════════════════════════════════════════
 on:
-  push:
-    branches:
-      - integration
-  pull_request:
-    branches:
-      - integration
-  workflow_dispatch:
+  workflow_call:
+    inputs:
+      # Configuración básica
+      docker_image:
+        description: 'Nombre de la imagen Docker (sin usuario)'
+        required: false
+        type: string
+        default: 'mi-aplicacion'
+      
+      dockerhub_username:
+        description: 'Usuario de DockerHub'
+        required: false
+        type: string
+        default: 'dariasmoises979'
+      
+      environment:
+        description: 'Entorno de despliegue (pre/staging/pro)'
+        required: false
+        type: string
+        default: 'pre'
+      
+      # Configuración de repositorio externo
+      external_repo:
+        description: 'Repositorio externo para clonar'
+        required: false
+        type: string
+        default: ''
+      
+      external_repo_ref:
+        description: 'Branch/tag del repositorio externo'
+        required: false
+        type: string
+        default: 'main'
+      
+      external_repo_path:
+        description: 'Ruta donde clonar el repo externo'
+        required: false
+        type: string
+        default: './app-repo'
+      
+      # Rutas de build
+      dockerfile_path:
+        description: 'Ruta al Dockerfile'
+        required: false
+        type: string
+        default: './Dockerfile'
+      
+      build_context:
+        description: 'Contexto para el build de Docker'
+        required: false
+        type: string
+        default: '.'
+      
+      # Opciones de seguridad
+      enable_security_scan:
+        description: 'Habilitar escaneo de seguridad'
+        required: false
+        type: boolean
+        default: true
+      
+      enable_sonar:
+        description: 'Habilitar análisis de SonarCloud'
+        required: false
+        type: boolean
+        default: false
+    
+    secrets:
+      DOCKERHUB_TOKEN:
+        required: true
+        description: 'Token de DockerHub'
+      
+      EXTERNAL_REPO_TOKEN:
+        required: false
+        description: 'Token para acceder al repositorio externo'
+      
+      SONAR_TOKEN:
+        required: false
+        description: 'Token de SonarCloud'
 
 permissions:
   actions: read
@@ -22,135 +91,73 @@ permissions:
 
 jobs:
   # ═══════════════════════════════════════════════════════════
-  # 🧪 JOB 1: TESTS DE INTEGRACIÓN
+  # 🏗️ JOB: BUILD Y DESPLIEGUE
   # ═══════════════════════════════════════════════════════════
-  integration-tests:
-    name: 🧪 Tests de Integración
-    uses: dariasmoises979-blip/pipeline-build/.github/workflows/integration.yml@main
-    secrets:
-      SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
-
-  # ═══════════════════════════════════════════════════════════
-  # 🎯 JOB 2: BUILD HÍBRIDO CON SEGURIDAD (Multi-Environment)
-  # Build → Quick Scan → Push → Full Scan
-  # ═══════════════════════════════════════════════════════════
-  build-hybrid-security:
-    name: 🎯 Hybrid Build - ${{ matrix.environment }}
-    needs: integration-tests
-    strategy:
-      matrix:
-        environment: [pre, staging, pro]
-      fail-fast: false  # Continúa aunque falle un entorno
-    uses: dariasmoises979-blip/pipeline-build/.github/workflows/build-image-hybrid.yml@main
-    with:
-      docker_image: mi-aplicacion
-      dockerhub_username: dariasmoises979
-      environment: ${{ matrix.environment }}
-      
-      # Configuración del repo externo
-      external_repo: dariasmoises979-blip/app  
-      external_repo_ref: main
-      external_repo_path: ./app-repo
-      
-      # Rutas del build
-      dockerfile_path: ./app-repo/local/Dockerfile
-      build_context: ./app-repo
-    secrets:
-      DOCKERHUB_TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}
-      EXTERNAL_REPO_TOKEN: ${{ secrets.GH2_TOKEN }}
-
-  # ═══════════════════════════════════════════════════════════
-  # 📊 JOB 3: REPORTE CONSOLIDADO FINAL
-  # ═══════════════════════════════════════════════════════════
-  final-consolidated-report:
-    name: 📊 Reporte Consolidado
-    needs: [integration-tests, build-hybrid-security]
+  build-and-deploy:
+    name: 🏗️ Build - ${{ inputs.environment }}
     runs-on: ubuntu-latest
-    if: always()
     
     steps:
-      - name: 📦 Checkout
+      - name: 📦 Checkout repositorio actual
         uses: actions/checkout@v4
 
-      - name: 📥 Descargar todos los reportes de seguridad
-        uses: actions/download-artifact@v4
+      - name: 📦 Checkout repositorio externo
+        if: inputs.external_repo != ''
+        uses: actions/checkout@v4
         with:
-          path: ./all-reports
+          repository: ${{ inputs.external_repo }}
+          ref: ${{ inputs.external_repo_ref }}
+          token: ${{ secrets.EXTERNAL_REPO_TOKEN }}
+          path: ${{ inputs.external_repo_path }}
 
-      - name: 📊 Generar resumen ejecutivo
-        run: |
-          echo "# 🎯 Resumen Ejecutivo del Pipeline QA" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-          echo "**Fecha**: $(date -u +'%Y-%m-%d %H:%M:%S UTC')" >> $GITHUB_STEP_SUMMARY
-          echo "**Commit**: \`${{ github.sha }}\`" >> $GITHUB_STEP_SUMMARY
-          echo "**Branch**: \`${{ github.ref_name }}\`" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-          
-          echo "## ✅ Estado de Jobs" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-          echo "| Job | Estado |" >> $GITHUB_STEP_SUMMARY
-          echo "|-----|--------|" >> $GITHUB_STEP_SUMMARY
-          echo "| 🧪 Tests de Integración | ${{ needs.integration-tests.result }} |" >> $GITHUB_STEP_SUMMARY
-          echo "| 🎯 Build Híbrido (pre) | $(echo '${{ toJSON(needs.build-hybrid-security.result) }}' | jq -r '. // "unknown"') |" >> $GITHUB_STEP_SUMMARY
-          echo "| 🎯 Build Híbrido (staging) | $(echo '${{ toJSON(needs.build-hybrid-security.result) }}' | jq -r '. // "unknown"') |" >> $GITHUB_STEP_SUMMARY
-          echo "| 🎯 Build Híbrido (pro) | $(echo '${{ toJSON(needs.build-hybrid-security.result) }}' | jq -r '. // "unknown"') |" >> $GITHUB_STEP_SUMMARY
+      - name: 🐳 Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
 
-      - name: 🐳 Analizar reportes de seguridad
-        continue-on-error: true
-        run: |
-          echo "" >> $GITHUB_STEP_SUMMARY
-          echo "## 🔐 Resumen de Seguridad por Entorno" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-          
-          for env in pre staging pro; do
-            REPORT_FILE="./all-reports/security-reports-${env}/trivy-report-${env}.json"
-            
-            if [ -f "$REPORT_FILE" ]; then
-              CRITICAL=$(jq '[.Results[]?.Vulnerabilities[]? | select(.Severity=="CRITICAL")] | length' $REPORT_FILE)
-              HIGH=$(jq '[.Results[]?.Vulnerabilities[]? | select(.Severity=="HIGH")] | length' $REPORT_FILE)
-              MEDIUM=$(jq '[.Results[]?.Vulnerabilities[]? | select(.Severity=="MEDIUM")] | length' $REPORT_FILE)
-              
-              echo "### 🏷️ Entorno: \`$env\`" >> $GITHUB_STEP_SUMMARY
-              echo "| Severidad | Cantidad |" >> $GITHUB_STEP_SUMMARY
-              echo "|-----------|----------|" >> $GITHUB_STEP_SUMMARY
-              echo "| 🔴 CRITICAL | $CRITICAL |" >> $GITHUB_STEP_SUMMARY
-              echo "| 🟠 HIGH | $HIGH |" >> $GITHUB_STEP_SUMMARY
-              echo "| 🟡 MEDIUM | $MEDIUM |" >> $GITHUB_STEP_SUMMARY
-              echo "" >> $GITHUB_STEP_SUMMARY
-            else
-              echo "### 🏷️ Entorno: \`$env\`" >> $GITHUB_STEP_SUMMARY
-              echo "⚠️ No se encontró reporte de seguridad" >> $GITHUB_STEP_SUMMARY
-              echo "" >> $GITHUB_STEP_SUMMARY
-            fi
-          done
+      - name: 🔐 Login to DockerHub
+        uses: docker/login-action@v3
+        with:
+          username: ${{ inputs.dockerhub_username }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
 
-      - name: 📦 Listar imágenes generadas
-        run: |
-          echo "" >> $GITHUB_STEP_SUMMARY
-          echo "## 📦 Imágenes Publicadas en DockerHub" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-          echo "| Entorno | Imagen | Comando Pull |" >> $GITHUB_STEP_SUMMARY
-          echo "|---------|--------|--------------|" >> $GITHUB_STEP_SUMMARY
-          echo "| pre | \`dariasmoises979/mi-aplicacion:pre\` | \`docker pull dariasmoises979/mi-aplicacion:pre\` |" >> $GITHUB_STEP_SUMMARY
-          echo "| staging | \`dariasmoises979/mi-aplicacion:staging\` | \`docker pull dariasmoises979/mi-aplicacion:staging\` |" >> $GITHUB_STEP_SUMMARY
-          echo "| pro | \`dariasmoises979/mi-aplicacion:pro\` | \`docker pull dariasmoises979/mi-aplicacion:pro\` |" >> $GITHUB_STEP_SUMMARY
+      - name: 🏗️ Build y Push Docker Image
+        uses: docker/build-push-action@v5
+        with:
+          context: ${{ inputs.build_context }}
+          file: ${{ inputs.dockerfile_path }}
+          push: true
+          tags: |
+            ${{ inputs.dockerhub_username }}/${{ inputs.docker_image }}:${{ inputs.environment }}
+            ${{ inputs.dockerhub_username }}/${{ inputs.docker_image }}:${{ inputs.environment }}-${{ github.sha }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
 
-      - name: 🔗 Enlaces útiles
-        run: |
-          echo "" >> $GITHUB_STEP_SUMMARY
-          echo "## 🔗 Enlaces Útiles" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-          echo "- 🐳 [DockerHub Repository](https://hub.docker.com/r/dariasmoises979/mi-aplicacion)" >> $GITHUB_STEP_SUMMARY
-          echo "- 🔐 [Security Alerts](https://github.com/${{ github.repository }}/security)" >> $GITHUB_STEP_SUMMARY
-          echo "- 📦 [Artifacts de este run](https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }})" >> $GITHUB_STEP_SUMMARY
-          echo "- 📊 [Todos los workflows](https://github.com/${{ github.repository }}/actions)" >> $GITHUB_STEP_SUMMARY
+      - name: 🔐 Security Scan con Trivy
+        if: inputs.enable_security_scan
+        uses: aquasecurity/trivy-action@master
+        with:
+          image-ref: ${{ inputs.dockerhub_username }}/${{ inputs.docker_image }}:${{ inputs.environment }}
+          format: 'sarif'
+          output: 'trivy-results.sarif'
 
-      - name: 🎉 Mensaje final
-        if: needs.build-hybrid-security.result == 'success'
+      - name: 📤 Upload Trivy results to GitHub Security
+        if: inputs.enable_security_scan
+        uses: github/codeql-action/upload-sarif@v3
+        with:
+          sarif_file: 'trivy-results.sarif'
+
+      - name: 📊 SonarCloud Scan
+        uses: SonarSource/sonarcloud-github-action@master
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+
+      - name: ✅ Resumen de Build
         run: |
+          echo "# 🎉 Build Completado - ${{ inputs.environment }}" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
-          echo "---" >> $GITHUB_STEP_SUMMARY
-          echo "## ✅ Pipeline Completado Exitosamente" >> $GITHUB_STEP_SUMMARY
+          echo "**Imagen**: \`${{ inputs.dockerhub_username }}/${{ inputs.docker_image }}:${{ inputs.environment }}\`" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
-          echo "### ✨ Logros:" >> $GITHUB_STEP_SUMMARY
-          echo
+          echo "### 📦 Pull Command:" >> $GITHUB_STEP_SUMMARY
+          echo "\`\`\`bash" >> $GITHUB_STEP_SUMMARY
+          echo "docker pull ${{ inputs.dockerhub_username }}/${{ inputs.docker_image }}:${{ inputs.environment }}" >> $GITHUB_STEP_SUMMARY
+          echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
