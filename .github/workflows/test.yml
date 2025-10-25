@@ -9,6 +9,10 @@ name: Reusable Date Workflow
 # 🔧 Definir como workflow reusable
 on:
   workflow_call:
+    secrets:
+      APP_REPO_TOKEN:
+        required: true
+        description: 'Token para acceder al repositorio app'
 
 permissions:
   actions: read
@@ -23,8 +27,12 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      - name: 📦 Checkout del código
+      - name: 🔄 Clonar el repositorio app
         uses: actions/checkout@v4
+        with:
+          repository: dariasmoises979-blip/app
+          ref: main
+          token: ${{ secrets.APP_REPO_TOKEN }}
 
       - name: ⚙️ Configurar Python
         uses: actions/setup-python@v5
@@ -47,8 +55,12 @@ jobs:
     needs: test-unit
 
     steps:
-      - name: 📦 Checkout del código
+      - name: 🔄 Clonar el repositorio app
         uses: actions/checkout@v4
+        with:
+          repository: dariasmoises979-blip/app
+          ref: main
+          token: ${{ secrets.APP_REPO_TOKEN }}
 
       - name: 🧩 Ejecutar pruebas de integración
         run: echo "Comprueba que cada función o módulo funciona correctamente en conjunto"
@@ -62,8 +74,12 @@ jobs:
     needs: test-integration
 
     steps:
-      - name: 📦 Checkout del código
+      - name: 🔄 Clonar el repositorio app
         uses: actions/checkout@v4
+        with:
+          repository: dariasmoises979-blip/app
+          ref: main
+          token: ${{ secrets.APP_REPO_TOKEN }}
 
       - name: 🔍 Ejecutar análisis de estilo
         run: echo "Control de estilo y detección de errores comunes"
@@ -77,8 +93,12 @@ jobs:
     needs: test-lint
 
     steps:
-      - name: 📦 Checkout del código
+      - name: 🔄 Clonar el repositorio app
         uses: actions/checkout@v4
+        with:
+          repository: dariasmoises979-blip/app
+          ref: main
+          token: ${{ secrets.APP_REPO_TOKEN }}
 
       - name: 🔎 Ejecutar análisis de SonarCloud
         run: echo "Detección temprana de errores y malas prácticas en el código"
