@@ -1,5 +1,6 @@
 name: Reusable QA Workflow
 
+# qa.yml - Sección inputs actualizada
 on:
   workflow_call:
     secrets:
@@ -10,6 +11,14 @@ on:
         required: false
         type: string
         default: "qa"
+      projectBaseDir:
+        required: false
+        type: string
+        default: "./pipeline-build"
+      sonar_args:
+        required: false
+        type: string
+        default: ""
 
 permissions:
   actions: read
