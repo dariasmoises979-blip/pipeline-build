@@ -42,6 +42,7 @@ jobs:
         with:
           repository: ${{ inputs.source_repo }}
           ref: ${{ inputs.source_ref }}
+          token: ${{ secrets.GITHUB_TOKEN }}  # ⬅️ AÑADIDO: Pasar el token explícitamente
           fetch-depth: 0
 
       ########################################
