@@ -1,55 +1,84 @@
+########################################
+# 🧪 WORKFLOW REUSABLE: Date Workflow
+# Ejecuta pruebas unitarias, de integración, lint y análisis de calidad.
+# Pensado para reutilizar en pipelines automatizados.
+########################################
+
 name: Reusable Date Workflow
 
+# 🔧 Definir como workflow reusable
 on:
   workflow_call:
 
+permissions:
+  actions: read
+  contents: read
 
 jobs:
+  # ═══════════════════════════════════════════════════════════
+  # 🧩 JOB: TEST UNITARIOS
+  # ═══════════════════════════════════════════════════════════
   test-unit:
+    name: 🧪 Unit Tests
     runs-on: ubuntu-latest
+
     steps:
-      - name: Checkout del código
+      - name: 📦 Checkout del código
         uses: actions/checkout@v4
 
-      - name: Configurar Python
+      - name: ⚙️ Configurar Python
         uses: actions/setup-python@v5
         with:
           python-version: "3.12"
 
-      - name: Instalar dependencias
+      - name: 📥 Instalar dependencias
         run: |
           pip install flask pytest
 
-      - name: Ejecutar tests
+      - name: ▶️ Ejecutar tests unitarios
         run: pytest -v
 
+  # ═══════════════════════════════════════════════════════════
+  # 🔗 JOB: TEST DE INTEGRACIÓN
+  # ═══════════════════════════════════════════════════════════
   test-integration:
-          runs-on: ubuntu-latest
-          steps:
-            - name: Checkout del código
-              uses: actions/checkout@v4
-      
-            - name: Ejecutar análisis de SonarCloud
-              run: echo "Comprueba que cada función o módulo funciona bien individualmente"
-          needs: test-unit
-
-  test-lint:
+    name: 🔗 Integration Tests
     runs-on: ubuntu-latest
+    needs: test-unit
+
     steps:
-      - name: Checkout del código
+      - name: 📦 Checkout del código
         uses: actions/checkout@v4
 
-      - name: Ejecutar análisis
-        run: echo "DControl de estilo, errores comunes"
+      - name: 🧩 Ejecutar pruebas de integración
+        run: echo "Comprueba que cada función o módulo funciona correctamente en conjunto"
+
+  # ═══════════════════════════════════════════════════════════
+  # 🧹 JOB: LINTER Y ANÁLISIS DE ESTILO
+  # ═══════════════════════════════════════════════════════════
+  test-lint:
+    name: 🧹 Lint & Style Check
+    runs-on: ubuntu-latest
     needs: test-integration
 
-  sonarcloud:
-    runs-on: ubuntu-latest
     steps:
-      - name: Checkout del código
+      - name: 📦 Checkout del código
         uses: actions/checkout@v4
 
-      - name: Ejecutar análisis de SonarCloud
-        run: echo "Detección temprana de errores y malas prácticas"
+      - name: 🔍 Ejecutar análisis de estilo
+        run: echo "Control de estilo y detección de errores comunes"
+
+  # ═══════════════════════════════════════════════════════════
+  # 📊 JOB: ANÁLISIS DE CALIDAD (SONARCLOUD)
+  # ═══════════════════════════════════════════════════════════
+  sonarcloud:
+    name: 📊 SonarCloud Analysis
+    runs-on: ubuntu-latest
     needs: test-lint
 
+    steps:
+      - name: 📦 Checkout del código
+        uses: actions/checkout@v4
+
+      - name: 🔎 Ejecutar análisis de SonarCloud
+        run: echo "Detección temprana de errores y malas prácticas en el código"
