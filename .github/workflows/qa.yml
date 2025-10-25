@@ -53,7 +53,7 @@ jobs:
           repository: dariasmoises979-blip/app
           ref: main
           path: pipeline-build
-          fetch-depth: 1
+          fetch-depth: 0
           token: ${{ secrets.GITHUB_TOKEN }}
 
       - name: 💾 Empaquetar código del proyecto
@@ -64,12 +64,15 @@ jobs:
         with:
           name: app-build
           path: pipeline-build.tar.gz
+          retention-days: 1
+
   # ═══════════════════════════════════════════════════════════
   # 🧩 JOB 1: TEST UNITARIOS
   # ═══════════════════════════════════════════════════════════
   test-qa:
     name: Ejecutar Tests Unitarios
     runs-on: ubuntu-latest
+    needs: setup-qa  # ✅ AÑADIDO: Espera a que setup-qa termine
 
     steps:
       - name: 💾 Descargar artefacto del proyecto
