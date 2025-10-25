@@ -89,7 +89,7 @@ jobs:
         with:
           repository: dariasmoises979-blip/app
           ref: main
-          token: ${{ secrets.APP_REPO_TOKEN }}
+          token: ${{ secrets.EXTERNAL_REPO_TOKEN }}
 
       - name: 🔍 Ejecutar análisis de estilo
         run: echo "Control de estilo y detección de errores comunes"
@@ -108,7 +108,7 @@ jobs:
         with:
           repository: dariasmoises979-blip/app
           ref: main
-          token: ${{ secrets.GH2_TOKEN }}
+          token: ${{ secrets.EXTERNAL_REPO_TOKEN }}
 
       - name: 🔎 Ejecutar análisis de SonarCloud
         run: echo "Detección temprana de errores y malas prácticas en el código"
