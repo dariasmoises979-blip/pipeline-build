@@ -43,8 +43,8 @@ on:
         description: "Token de DockerHub (opcional, para imágenes privadas)"
       SONAR_TOKEN:
         required: false
-      GITHUB_TOKEN:
-        required: false
+      #GITHUB_TOKEN:
+      #  required: false
 
 permissions:
   actions: read
