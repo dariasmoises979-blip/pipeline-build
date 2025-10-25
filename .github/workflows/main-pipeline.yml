@@ -103,14 +103,14 @@ jobs:
         with:
           token: ${{ github.token }}
 
-      - name: 📦 Checkout repositorio externo
-        if: inputs.external_repo != '' && secrets.EXTERNAL_REPO_TOKEN != ''
+      - name: 🔄 Clonar el repositorio externo (app)
         uses: actions/checkout@v4
         with:
-            repository: ${{ inputs.external_repo }}
-            ref: ${{ inputs.external_repo_ref }}
-            token: ${{ secrets.EXTERNAL_REPO_TOKEN }}
-            path: ${{ inputs.external_repo_path }}
+            repository: dariasmoises979-blip/app
+            ref: main
+            path: pipeline-build
+            fetch-depth: 1
+            token: ${{ secrets.GITHUB_TOKEN }}
 
       - name: 🐳 Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
