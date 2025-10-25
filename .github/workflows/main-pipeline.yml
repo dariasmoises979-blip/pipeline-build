@@ -74,7 +74,11 @@ on:
         required: false
         type: string
         default: '.'
-    
+
+      sonar_project_base_dir:    #
+        required: false
+        type: string
+
     secrets:
       DOCKERHUB_TOKEN:
         required: true
