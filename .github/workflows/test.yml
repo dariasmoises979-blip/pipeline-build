@@ -54,7 +54,7 @@ jobs:
 
       - name: 📥 Instalar dependencias
         run: |
-          pip install -r local/requirements
+          pip install -r local/requirements.txt
 
   # ═══════════════════════════════════════════════════════════
   # 🔗 JOB: TEST DE INTEGRACIÓN
