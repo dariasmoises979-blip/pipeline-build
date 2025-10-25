@@ -20,10 +20,9 @@ jobs:
     name: Deploy to GKS QA
     if: inputs.deploy_to_gks == true
     runs-on: ubuntu-latest
-    # 🔐 También puedes añadir environment aquí para doble protección
     environment: 
-      name: qa
-      url: https://qa.tu-dominio.com  # URL opcional del entorno
+      name: qa  # 🔐 Aquí SÍ funciona el environment
+      url: https://qa.tu-dominio.com  # Opcional
 
     steps:
       - name: Checkout code
