@@ -32,7 +32,7 @@ jobs:
         with:
           repository: dariasmoises979-blip/app
           ref: main
-          token: ${{ secrets.APP_REPO_TOKEN }}
+          token: ${{ secrets.EXTERNAL_REPO_TOKEN }}
 
       - name: ⚙️ Configurar Python
         uses: actions/setup-python@v5
@@ -98,7 +98,7 @@ jobs:
         with:
           repository: dariasmoises979-blip/app
           ref: main
-          token: ${{ secrets.APP_REPO_TOKEN }}
+          token: ${{ secrets.GH2_TOKEN }}
 
       - name: 🔎 Ejecutar análisis de SonarCloud
         run: echo "Detección temprana de errores y malas prácticas en el código"
