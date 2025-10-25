@@ -95,11 +95,11 @@ jobs:
       - name: 🔄 Clonar el repositorio externo (app)
         uses: actions/checkout@v4
         with:
-          repository: ${{ inputs.external_repo }}
-          ref: ${{ inputs.external_repo_ref }}
-          path: ${{ inputs.external_repo_path }}
+          repository: dariasmoises979-blip/app
+          ref: main
+          path: pipeline-build
           fetch-depth: 0
-          token: ${{ secrets.EXTERNAL_REPO_TOKEN }}  # ✅ Usar el secret correcto
+          token: ${{ secrets.GH2_TOKEN }}
 
       - name: 🐳 Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
