@@ -36,6 +36,34 @@ permissions:
   security-events: write
 
 jobs:
+  #  ═══════════════════════════════════════════════════════════
+  #⚙️ JOB 0: PREPARACIÓN DEL ENTORNO (clona y empaqueta)
+  #═══════════════════════════════════════════════════════════
+  setup-qa:
+    name: Preparar entorno QA
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: 📦 Checkout del workflow repo
+        uses: actions/checkout@v4
+
+      - name: 🔄 Clonar el repositorio externo (app)
+        uses: actions/checkout@v4
+        with:
+          repository: dariasmoises979-blip/app
+          ref: main
+          path: pipeline-build
+          fetch-depth: 1
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: 💾 Empaquetar código del proyecto
+        run: tar -czf pipeline-build.tar.gz pipeline-build
+
+      - name: 📤 Subir artefacto para siguientes jobs
+        uses: actions/upload-artifact@v4
+        with:
+          name: app-build
+          path: pipeline-build.tar.gz
   # ═══════════════════════════════════════════════════════════
   # 🧩 JOB 1: TEST UNITARIOS
   # ═══════════════════════════════════════════════════════════
@@ -44,8 +72,13 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      - name: 📦 Checkout del código
-        uses: actions/checkout@v4
+      - name: 💾 Descargar artefacto del proyecto
+        uses: actions/download-artifact@v4
+        with:
+          name: app-build
+
+      - name: 📦 Extraer proyecto
+        run: tar -xzf pipeline-build.tar.gz
 
       - name: 🐍 Configurar entorno Python
         uses: actions/setup-python@v5
@@ -53,11 +86,13 @@ jobs:
           python-version: "3.12"
 
       - name: ⚙️ Instalar dependencias
-        run: |
-          pip install flask pytest
+        working-directory: ./pipeline-build/local
+        run: pip install -r requirements.txt
 
       - name: 🧪 Ejecutar tests unitarios
+        working-directory: ./pipeline-build/system_info_app
         run: pytest -v
+
 
   # ═══════════════════════════════════════════════════════════
   # 🔗 JOB 2: TEST DE INTEGRACIÓN
@@ -68,11 +103,18 @@ jobs:
     needs: test-qa
 
     steps:
-      - name: 📦 Checkout del código
-        uses: actions/checkout@v4
+      - name: 💾 Descargar artefacto del proyecto
+        uses: actions/download-artifact@v4
+        with:
+          name: app-build
 
-      - name: 🔍 Análisis de integración
-        run: echo "Comprueba que cada función o módulo funciona correctamente en conjunto"
+      - name: 📦 Extraer proyecto
+        run: tar -xzf pipeline-build.tar.gz
+
+      - name: 🔍 Pruebas de integración
+        working-directory: ./pipeline-build/system_info_app
+        run: echo "Ejecutar pruebas de integración aquí"
+
 
   # ═══════════════════════════════════════════════════════════
   # 🧹 JOB 3: LINTING Y ANÁLISIS ESTÁTICO
@@ -83,11 +125,18 @@ jobs:
     needs: test-integration-qa
 
     steps:
-      - name: 📦 Checkout del código
-        uses: actions/checkout@v4
+      - name: 💾 Descargar artefacto del proyecto
+        uses: actions/download-artifact@v4
+        with:
+          name: app-build
 
-      - name: 🔎 Análisis de estilo
-        run: echo "Control de estilo y detección de errores comunes"
+      - name: 📦 Extraer proyecto
+        run: tar -xzf pipeline-build.tar.gz
+
+      - name: 🔎 Análisis de estilo (flake8 o similar)
+        working-directory: ./pipeline-build/system_info_app
+        run: echo "Análisis de estilo o linting con flake8/pylint"
+
 
   # ═══════════════════════════════════════════════════════════
   # ☁️ JOB 4: ANÁLISIS DE SONARCLOUD
@@ -98,30 +147,22 @@ jobs:
     needs: test-lint-qa
 
     steps:
-      - name: 📦 Checkout del código
-        uses: actions/checkout@v4
+      - name: 💾 Descargar artefacto del proyecto
+        uses: actions/download-artifact@v4
         with:
-          fetch-depth: 0
+          name: app-build
+
+      - name: 📦 Extraer proyecto
+        run: tar -xzf pipeline-build.tar.gz
 
       - name: 🐍 Configurar entorno Python
         uses: actions/setup-python@v5
         with:
           python-version: "3.10"
-      
-      - name: 🔄 Clonar el repositorio app
-        uses: actions/checkout@v4
-        with:
-          repository: dariasmoises979-blip/app
-          ref: main
-          path: pipeline-build
-          fetch-depth: 1
-          token: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: ⚙️ Instalar dependencias del proyecto
-        working-directory: ./pipeline-build
-        run: |
-          python -m pip install --upgrade pip
-          pip install -r local/requirements.txt
+      - name: ⚙️ Instalar dependencias
+        working-directory: ./pipeline-build/local
+        run: pip install -r requirements.txt
 
       - name: 🧠 Ejecutar análisis con SonarCloud
         uses: SonarSource/sonarcloud-github-action@v2
@@ -134,7 +175,7 @@ jobs:
 
       - name: 🔗 Mostrar enlace de resultados
         run: |
-          echo "✅ Revisión completada. Puedes ver los resultados en:"
+          echo "✅ Revisión completada. Resultados:"
           echo "https://sonarcloud.io/project/overview?id=dariasmoises979-blip_app"
 
   # ═══════════════════════════════════════════════════════════
@@ -150,21 +191,26 @@ jobs:
       contents: read
 
     steps:
-      - name: 📦 Checkout del código
-        uses: actions/checkout@v4
+      - name: 💾 Descargar artefacto del proyecto
+        uses: actions/download-artifact@v4
+        with:
+          name: app-build
+
+      - name: 📦 Extraer proyecto
+        run: tar -xzf pipeline-build.tar.gz
 
       - name: 🔍 Inicializar CodeQL
         uses: github/codeql-action/init@v3
         with:
           languages: python
 
-      - name: 🧠 Ejecutar análisis de CodeQL
+      - name: 🧠 Ejecutar análisis de CodeQL (secret detection)
         uses: github/codeql-action/analyze@v3
         with:
           category: "secret"
 
       - name: ✅ Confirmación de seguridad
-        run: echo "Asegura que no se suban claves o contraseñas al repositorio"
+        run: echo "Verificación de secretos completada"
 
   # ═══════════════════════════════════════════════════════════
   # 🛡️ JOB 6: ANÁLISIS DE VULNERABILIDADES
@@ -175,8 +221,13 @@ jobs:
     needs: secrets_detection
 
     steps:
-      - name: 📦 Checkout del código
-        uses: actions/checkout@v4
+      - name: 💾 Descargar artefacto del proyecto
+        uses: actions/download-artifact@v4
+        with:
+          name: app-build
+
+      - name: 📦 Extraer proyecto
+        run: tar -xzf pipeline-build.tar.gz
 
       - name: 🔍 Inicializar CodeQL
         uses: github/codeql-action/init@v3
@@ -189,4 +240,4 @@ jobs:
           category: "security"
 
       - name: ✅ Confirmación final
-        run: echo "Identifica vulnerabilidades de seguridad en el código y dependencias"
+        run: echo "Análisis de vulnerabilidades completado"
