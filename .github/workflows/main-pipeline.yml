@@ -104,13 +104,13 @@ jobs:
           token: ${{ github.token }}
 
       - name: 📦 Checkout repositorio externo
-        if: inputs.external_repo != ''
+        if: inputs.external_repo != '' && secrets.EXTERNAL_REPO_TOKEN != ''
         uses: actions/checkout@v4
         with:
-          repository: ${{ inputs.external_repo }}
-          ref: ${{ inputs.external_repo_ref }}
-          token: ${{ secrets.EXTERNAL_REPO_TOKEN }}
-          path: ${{ inputs.external_repo_path }}
+            repository: ${{ inputs.external_repo }}
+            ref: ${{ inputs.external_repo_ref }}
+            token: ${{ secrets.EXTERNAL_REPO_TOKEN }}
+            path: ${{ inputs.external_repo_path }}
 
       - name: 🐳 Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
