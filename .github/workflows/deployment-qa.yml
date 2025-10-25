@@ -1,14 +1,12 @@
 name: Deploy to GKS QA
 
 on:
-  # 🔹 Permite que otros workflows lo invoquen
   workflow_call:
     inputs:
       deploy_to_gks:
         required: true
         type: boolean
 
-  # 🔹 Muestra el botón "Run workflow" en la interfaz de GitHub
   workflow_dispatch:
     inputs:
       deploy_to_gks:
@@ -22,6 +20,10 @@ jobs:
     name: Deploy to GKS QA
     if: inputs.deploy_to_gks == true
     runs-on: ubuntu-latest
+    # 🔐 También puedes añadir environment aquí para doble protección
+    environment: 
+      name: qa
+      url: https://qa.tu-dominio.com  # URL opcional del entorno
 
     steps:
       - name: Checkout code
@@ -30,10 +32,7 @@ jobs:
       - name: Deploy to GKS QA
         run: |
           echo "🚀 Deploying to GKS QA environment..."
-          # Aquí van tus comandos de despliegue reales
-          # Ejemplo:
-          # gcloud container clusters get-credentials $GKS_CLUSTER --zone=us-central1-a --project=$GKS_PROJECT
-          # kubectl apply -f k8s/qa/
+          # Tus comandos de despliegue
         env:
           GKS_PROJECT: ${{ secrets.GKS_PROJECT }}
           GKS_CLUSTER: ${{ secrets.GKS_CLUSTER }}
