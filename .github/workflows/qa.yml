@@ -1,5 +1,12 @@
+########################################
+# 🧪 WORKFLOW REUSABLE: QA Pipeline
+# Ejecuta tests unitarios, integración, linting y análisis de calidad
+# de código usando SonarCloud y CodeQL para entornos QA.
+########################################
+
 name: Reusable QA Workflow
 
+# 🔧 Definir como workflow reusable con entradas y secretos configurables
 on:
   workflow_call:
     secrets:
@@ -7,79 +14,101 @@ on:
         required: true
     inputs:
       branch:
+        description: "Rama donde se ejecutarán los análisis (por defecto: qa)"
         required: false
         type: string
         default: "qa"
       projectBaseDir:
+        description: "Directorio base del proyecto para SonarCloud"
         required: false
         type: string
         default: "./pipeline-build"
       sonar_args:
+        description: "Argumentos adicionales para SonarCloud"
         required: false
         type: string
         default: ""
 
+# 🔐 Permisos globales requeridos
 permissions:
   actions: read
   contents: read
   security-events: write
 
 jobs:
+  # ═══════════════════════════════════════════════════════════
+  # 🧩 JOB 1: TEST UNITARIOS
+  # ═══════════════════════════════════════════════════════════
   test-qa:
+    name: Ejecutar Tests Unitarios
     runs-on: ubuntu-latest
+
     steps:
-      - name: Checkout del código
+      - name: 📦 Checkout del código
         uses: actions/checkout@v4
 
-      - name: Configurar Python
+      - name: 🐍 Configurar entorno Python
         uses: actions/setup-python@v5
         with:
           python-version: "3.12"
 
-      - name: Instalar dependencias
+      - name: ⚙️ Instalar dependencias
         run: |
           pip install flask pytest
 
-      - name: Ejecutar tests
+      - name: 🧪 Ejecutar tests unitarios
         run: pytest -v
-        
+
+  # ═══════════════════════════════════════════════════════════
+  # 🔗 JOB 2: TEST DE INTEGRACIÓN
+  # ═══════════════════════════════════════════════════════════
   test-integration-qa:
+    name: Ejecutar Tests de Integración
     runs-on: ubuntu-latest
     needs: test-qa
+
     steps:
-      - name: Checkout del código
+      - name: 📦 Checkout del código
         uses: actions/checkout@v4
 
-      - name: Ejecutar análisis de integración
-        run: echo "Comprueba que cada función o módulo funciona bien individualmente"
+      - name: 🔍 Análisis de integración
+        run: echo "Comprueba que cada función o módulo funciona correctamente en conjunto"
 
+  # ═══════════════════════════════════════════════════════════
+  # 🧹 JOB 3: LINTING Y ANÁLISIS ESTÁTICO
+  # ═══════════════════════════════════════════════════════════
   test-lint-qa:
+    name: Análisis de Estilo y Linting
     runs-on: ubuntu-latest
     needs: test-integration-qa
+
     steps:
-      - name: Checkout del código
+      - name: 📦 Checkout del código
         uses: actions/checkout@v4
 
-      - name: Ejecutar análisis
-        run: echo "Control de estilo, errores comunes"
+      - name: 🔎 Análisis de estilo
+        run: echo "Control de estilo y detección de errores comunes"
 
+  # ═══════════════════════════════════════════════════════════
+  # ☁️ JOB 4: ANÁLISIS DE SONARCLOUD
+  # ═══════════════════════════════════════════════════════════
   sonarcloud-qa:
-    name: Análisis de SonarCloud
+    name: Análisis de Calidad con SonarCloud
     runs-on: ubuntu-latest
     needs: test-lint-qa
 
     steps:
-      - name: Checkout del código
+      - name: 📦 Checkout del código
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
 
-      - name: Configurar Python
+      - name: 🐍 Configurar entorno Python
         uses: actions/setup-python@v5
         with:
-          python-version: '3.10'
+          python-version: "3.10"
       
-      - name: Clonar el repositorio app
+      - name: 🔄 Clonar el repositorio app
         uses: actions/checkout@v4
         with:
           repository: dariasmoises979-blip/app
@@ -88,13 +117,13 @@ jobs:
           fetch-depth: 1
           token: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Instalar dependencias
+      - name: ⚙️ Instalar dependencias del proyecto
         working-directory: ./pipeline-build
         run: |
           python -m pip install --upgrade pip
           pip install -r local/requirements.txt
 
-      - name: Analizar con SonarCloud
+      - name: 🧠 Ejecutar análisis con SonarCloud
         uses: SonarSource/sonarcloud-github-action@v2
         with:
           projectBaseDir: ${{ inputs.projectBaseDir }}
@@ -103,51 +132,61 @@ jobs:
           SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
           SONAR_HOST_URL: https://sonarcloud.io
 
-      - name: Mostrar enlace de resultados
+      - name: 🔗 Mostrar enlace de resultados
         run: |
-          echo "Revisión completada. Puedes ver los resultados en:"
+          echo "✅ Revisión completada. Puedes ver los resultados en:"
           echo "https://sonarcloud.io/project/overview?id=dariasmoises979-blip_app"
 
+  # ═══════════════════════════════════════════════════════════
+  # 🕵️ JOB 5: DETECCIÓN DE SECRETOS
+  # ═══════════════════════════════════════════════════════════
   secrets_detection:
+    name: Detección de Claves o Secretos
     runs-on: ubuntu-latest
     needs: sonarcloud-qa
     permissions:
       security-events: write
       actions: read
       contents: read
+
     steps:
-      - name: Checkout del código
+      - name: 📦 Checkout del código
         uses: actions/checkout@v4
 
-      - name: Inicializar CodeQL
+      - name: 🔍 Inicializar CodeQL
         uses: github/codeql-action/init@v3
         with:
           languages: python
 
-      - name: Ejecutar análisis CodeQL
+      - name: 🧠 Ejecutar análisis de CodeQL
         uses: github/codeql-action/analyze@v3
         with:
           category: "secret"
 
-      - name: Mensaje de confirmación
-        run: echo "Asegura que no se suban claves o contraseñas"
+      - name: ✅ Confirmación de seguridad
+        run: echo "Asegura que no se suban claves o contraseñas al repositorio"
 
+  # ═══════════════════════════════════════════════════════════
+  # 🛡️ JOB 6: ANÁLISIS DE VULNERABILIDADES
+  # ═══════════════════════════════════════════════════════════
   security_vulnerabilities:
+    name: Análisis de Vulnerabilidades de Seguridad
     runs-on: ubuntu-latest
     needs: secrets_detection
+
     steps:
-      - name: Checkout del código
+      - name: 📦 Checkout del código
         uses: actions/checkout@v4
 
-      - name: Inicializar CodeQL
+      - name: 🔍 Inicializar CodeQL
         uses: github/codeql-action/init@v3
         with:
           languages: python
 
-      - name: Ejecutar análisis de CodeQL
+      - name: 🧠 Ejecutar análisis de seguridad
         uses: github/codeql-action/analyze@v3
         with:
           category: "security"
 
-      - name: Mensaje de confirmación
-        run: echo "Identifica vulnerabilidades de seguridad en el código"
+      - name: ✅ Confirmación final
+        run: echo "Identifica vulnerabilidades de seguridad en el código y dependencias"
