@@ -1,19 +1,12 @@
-########################################
-# 🧪 WORKFLOW REUSABLE: Date Workflow
-# Ejecuta pruebas unitarias, de integración, lint y análisis de calidad.
-# Pensado para reutilizar en pipelines automatizados.
-########################################
+name: Reusable Test Workflow
 
-name: Reusable Date Workflow
-
-# 🔧 Definir como workflow reusable
 on:
   workflow_call:
     inputs:
       external_repo:
         required: true
         type: string
-        description: 'Nombre del repositorio externo'
+        description: 'Repositorio externo que contiene la app a testear'
       external_repo_ref:
         required: true
         type: string
@@ -21,9 +14,10 @@ on:
       external_repo_path:
         required: false
         type: string
-        description: 'Ruta donde clonar el repositorio externo'
+        default: './app-repo'
+        description: 'Ruta donde se clonará el repo externo'
     secrets:
-      EXTERNAL_REPO_TOKEN: 
+      EXTERNAL_REPO_TOKEN:
         required: true
         description: 'Token para acceder al repositorio app'
 
@@ -32,19 +26,17 @@ permissions:
   contents: write
 
 jobs:
-  # ═══════════════════════════════════════════════════════════
-  # 🧩 JOB: TEST UNITARIOS
-  # ═══════════════════════════════════════════════════════════
   test-unit:
     name: 🧪 Unit Tests
     runs-on: ubuntu-latest
-    
+
     steps:
-      - name: 🔄 Clonar el repositorio app
+      - name: 🔄 Clonar el repositorio externo
         uses: actions/checkout@v4
         with:
-          repository: dariasmoises979-blip/app
-          ref: main
+          repository: ${{ inputs.external_repo }}
+          ref: ${{ inputs.external_repo_ref }}
+          path: ${{ inputs.external_repo_path }}
           token: ${{ secrets.EXTERNAL_REPO_TOKEN }}
 
       - name: ⚙️ Configurar Python
@@ -52,66 +44,14 @@ jobs:
         with:
           python-version: "3.12"
 
-      - name: 📥 Instalar dependencias
+      - name: 📦 Instalar dependencias
+        working-directory: ${{ inputs.external_repo_path }}/local
         run: |
           pip install -r requirements.txt
 
       - name: ▶️ Ejecutar tests unitarios
-        run: pytest -v
+        working-directory: ${{ inputs.external_repo_path }}/system_info_app
+        run: |
+          pytest -v
 
-  # ═══════════════════════════════════════════════════════════
-  # 🔗 JOB: TEST DE INTEGRACIÓN
-  # ═══════════════════════════════════════════════════════════
-  test-integration:
-    name: 🔗 Integration Tests
-    runs-on: ubuntu-latest
-    needs: test-unit
-
-    steps:
-      - name: 🔄 Clonar el repositorio app
-        uses: actions/checkout@v4
-        with:
-          repository: dariasmoises979-blip/app
-          ref: main
-          token: ${{ secrets.EXTERNAL_REPO_TOKEN }}
-
-      - name: 🧩 Ejecutar pruebas de integración
-        run: echo "Comprueba que cada función o módulo funciona correctamente en conjunto"
-
-  # ═══════════════════════════════════════════════════════════
-  # 🧹 JOB: LINTER Y ANÁLISIS DE ESTILO
-  # ═══════════════════════════════════════════════════════════
-  test-lint:
-    name: 🧹 Lint & Style Check
-    runs-on: ubuntu-latest
-    needs: test-integration
-
-    steps:
-      - name: 🔄 Clonar el repositorio app
-        uses: actions/checkout@v4
-        with:
-          repository: dariasmoises979-blip/app
-          ref: main
-          token: ${{ secrets.APP_REPO_TOKEN }}
-
-      - name: 🔍 Ejecutar análisis de estilo
-        run: echo "Control de estilo y detección de errores comunes"
-
-  # ═══════════════════════════════════════════════════════════
-  # 📊 JOB: ANÁLISIS DE CALIDAD (SONARCLOUD)
-  # ═══════════════════════════════════════════════════════════
-  sonarcloud:
-    name: 📊 SonarCloud Analysis
-    runs-on: ubuntu-latest
-    needs: test-lint
-
-    steps:
-      - name: 🔄 Clonar el repositorio app
-        uses: actions/checkout@v4
-        with:
-          repository: dariasmoises979-blip/app
-          ref: main
-          token: ${{ secrets.GH2_TOKEN }}
-
-      - name: 🔎 Ejecutar análisis de SonarCloud
-        run: echo "Detección temprana de errores y malas prácticas en el código"
+  # (Opcional: puedes añadir aquí lint, integración o sonar si quieres)
