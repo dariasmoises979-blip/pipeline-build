@@ -60,7 +60,7 @@ jobs:
         with:
           repository: dariasmoises979-blip/app
           ref: main
-          token: ${{ secrets.APP_REPO_TOKEN }}
+          token: ${{ secrets.EXTERNAL_REPO_TOKEN }}
 
       - name: 🧩 Ejecutar pruebas de integración
         run: echo "Comprueba que cada función o módulo funciona correctamente en conjunto"
