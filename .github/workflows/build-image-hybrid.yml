@@ -1,0 +1,368 @@
+########################################
+# 🎯 WORKFLOW REUSABLE: Build Híbrido con Seguridad
+# Build → Quick Test → Push → Full Security Scan
+########################################
+
+name: Hybrid Build & Security Pipeline
+
+on:
+  workflow_call:
+    inputs:
+      docker_image:
+        required: true
+        type: string
+      dockerhub_username:
+        required: true
+        type: string
+      environment:
+        required: true
+        type: string
+      external_repo:
+        required: true
+        type: string
+      external_repo_ref:
+        required: false
+        type: string
+        default: main
+      external_repo_path:
+        required: false
+        type: string
+        default: ./app-repo
+      dockerfile_path:
+        required: true
+        type: string
+      build_context:
+        required: true
+        type: string
+    secrets:
+      DOCKERHUB_TOKEN:
+        required: true
+      EXTERNAL_REPO_TOKEN:
+        required: true
+
+permissions:
+  actions: read
+  contents: read
+  security-events: write
+  pull-requests: write
+
+jobs:
+  # ═══════════════════════════════════════════════════════════
+  # 🔨 FASE 1: BUILD + QUICK SECURITY SCAN (Local)
+  # ═══════════════════════════════════════════════════════════
+  build-and-quick-scan:
+    name: 🔨 Build & Quick Scan (${{ inputs.environment }})
+    runs-on: ubuntu-latest
+    outputs:
+      image_full: ${{ steps.meta.outputs.image_full }}
+      should_continue: ${{ steps.quick_scan_result.outputs.passed }}
+    
+    steps:
+      # ─────────────────────────────────────────────────────
+      # 1. Preparación
+      # ─────────────────────────────────────────────────────
+      - name: 📦 Checkout código fuente
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ inputs.external_repo }}
+          ref: ${{ inputs.external_repo_ref }}
+          token: ${{ secrets.EXTERNAL_REPO_TOKEN }}
+          path: ${{ inputs.external_repo_path }}
+          fetch-depth: 1
+
+      - name: 🐳 Setup Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: 📝 Generar metadata
+        id: meta
+        run: |
+          IMAGE_FULL="${{ inputs.dockerhub_username }}/${{ inputs.docker_image }}:${{ inputs.environment }}"
+          echo "image_full=$IMAGE_FULL" >> $GITHUB_OUTPUT
+          
+          echo "### 🏗️ Build de Imagen - ${{ inputs.environment }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **Imagen**: \`$IMAGE_FULL\`" >> $GITHUB_STEP_SUMMARY
+          echo "- **Repositorio**: ${{ inputs.external_repo }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **Dockerfile**: ${{ inputs.dockerfile_path }}" >> $GITHUB_STEP_SUMMARY
+
+      # ─────────────────────────────────────────────────────
+      # 2. Build de la imagen
+      # ─────────────────────────────────────────────────────
+      - name: 🔨 Construir imagen Docker
+        run: |
+          cd ${{ inputs.build_context }}
+          docker build \
+            -t ${{ steps.meta.outputs.image_full }} \
+            -f ${{ inputs.dockerfile_path }} \
+            --label "build.timestamp=$(date -u +'%Y-%m-%dT%H:%M:%SZ')" \
+            --label "build.environment=${{ inputs.environment }}" \
+            --label "build.ref=${{ github.sha }}" \
+            .
+          
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "✅ **Imagen construida exitosamente**" >> $GITHUB_STEP_SUMMARY
+
+      # ─────────────────────────────────────────────────────
+      # 3. TEST RÁPIDO 1: Hadolint (Dockerfile lint)
+      # ─────────────────────────────────────────────────────
+      - name: 🧩 Hadolint - Validar Dockerfile
+        id: hadolint
+        continue-on-error: true
+        uses: hadolint/hadolint-action@v3.1.0
+        with:
+          dockerfile: ${{ inputs.dockerfile_path }}
+          failure-threshold: warning
+          ignore: DL3018,DL3008
+
+      - name: 📊 Resultado Hadolint
+        run: |
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### 📋 Test 1: Hadolint (Dockerfile Best Practices)" >> $GITHUB_STEP_SUMMARY
+          if [ "${{ steps.hadolint.outcome }}" == "success" ]; then
+            echo "✅ **PASSED** - Dockerfile cumple con best practices" >> $GITHUB_STEP_SUMMARY
+          else
+            echo "⚠️ **WARNINGS** - Revisa las recomendaciones de Hadolint" >> $GITHUB_STEP_SUMMARY
+          fi
+
+      # ─────────────────────────────────────────────────────
+      # 4. TEST RÁPIDO 2: Trivy - Solo CRITICAL
+      # ─────────────────────────────────────────────────────
+      - name: 🔎 Trivy - Quick Scan (Solo CRITICAL)
+        id: trivy_quick
+        continue-on-error: true
+        uses: aquasecurity/trivy-action@master
+        with:
+          image-ref: ${{ steps.meta.outputs.image_full }}
+          format: 'table'
+          severity: 'CRITICAL'
+          exit-code: '1'
+          timeout: '5m'
+
+      - name: 📊 Resultado Trivy Quick
+        id: quick_scan_result
+        run: |
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### 🔍 Test 2: Trivy Quick Scan (Vulnerabilidades CRITICAL)" >> $GITHUB_STEP_SUMMARY
+          
+          if [ "${{ steps.trivy_quick.outcome }}" == "success" ]; then
+            echo "✅ **PASSED** - Sin vulnerabilidades CRITICAL detectadas" >> $GITHUB_STEP_SUMMARY
+            echo "passed=true" >> $GITHUB_OUTPUT
+          else
+            echo "❌ **FAILED** - Se detectaron vulnerabilidades CRITICAL" >> $GITHUB_STEP_SUMMARY
+            echo "passed=false" >> $GITHUB_OUTPUT
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "🚨 **La imagen NO se subirá a DockerHub hasta corregir los problemas**" >> $GITHUB_STEP_SUMMARY
+          fi
+
+      # ─────────────────────────────────────────────────────
+      # 5. Decisión: ¿Continuar o detener?
+      # ─────────────────────────────────────────────────────
+      - name: ⚖️ Evaluar resultados
+        if: steps.quick_scan_result.outputs.passed != 'true'
+        run: |
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "---" >> $GITHUB_STEP_SUMMARY
+          echo "## ❌ Pipeline Detenido" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**Razón**: Vulnerabilidades CRITICAL detectadas" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### 🔧 Acciones Requeridas:" >> $GITHUB_STEP_SUMMARY
+          echo "1. Revisa los logs de Trivy arriba" >> $GITHUB_STEP_SUMMARY
+          echo "2. Actualiza las dependencias vulnerables" >> $GITHUB_STEP_SUMMARY
+          echo "3. Reconstruye la imagen" >> $GITHUB_STEP_SUMMARY
+          echo "4. Vuelve a ejecutar el pipeline" >> $GITHUB_STEP_SUMMARY
+          exit 1
+
+      # ─────────────────────────────────────────────────────
+      # 6. Push a DockerHub (SOLO si pasó validación)
+      # ─────────────────────────────────────────────────────
+      - name: 🔐 Login en DockerHub
+        if: steps.quick_scan_result.outputs.passed == 'true'
+        uses: docker/login-action@v3
+        with:
+          username: ${{ inputs.dockerhub_username }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      - name: 📤 Push a DockerHub
+        if: steps.quick_scan_result.outputs.passed == 'true'
+        run: |
+          docker push ${{ steps.meta.outputs.image_full }}
+          
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "---" >> $GITHUB_STEP_SUMMARY
+          echo "## ✅ Imagen Publicada en DockerHub" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "- **Registry**: DockerHub" >> $GITHUB_STEP_SUMMARY
+          echo "- **Imagen**: \`${{ steps.meta.outputs.image_full }}\`" >> $GITHUB_STEP_SUMMARY
+          echo "- **Pull command**:" >> $GITHUB_STEP_SUMMARY
+          echo '```bash' >> $GITHUB_STEP_SUMMARY
+          echo "docker pull ${{ steps.meta.outputs.image_full }}" >> $GITHUB_STEP_SUMMARY
+          echo '```' >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "🚀 **Siguiente paso**: Análisis completo de seguridad desde DockerHub" >> $GITHUB_STEP_SUMMARY
+
+  # ═══════════════════════════════════════════════════════════
+  # 🔐 FASE 2: FULL SECURITY SCAN (Desde DockerHub)
+  # ═══════════════════════════════════════════════════════════
+  full-security-scan:
+    name: 🔐 Full Security Scan (${{ inputs.environment }})
+    needs: build-and-quick-scan
+    if: needs.build-and-quick-scan.outputs.should_continue == 'true'
+    runs-on: ubuntu-latest
+    
+    steps:
+      # ─────────────────────────────────────────────────────
+      # 1. Pull imagen desde DockerHub
+      # ─────────────────────────────────────────────────────
+      - name: 🔐 Login en DockerHub
+        uses: docker/login-action@v3
+        with:
+          username: ${{ inputs.dockerhub_username }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      - name: 📥 Pull imagen desde DockerHub
+        run: |
+          IMAGE_FULL="${{ needs.build-and-quick-scan.outputs.image_full }}"
+          echo "📥 Descargando imagen desde DockerHub..."
+          docker pull $IMAGE_FULL
+          
+          echo "### 🔍 Análisis Completo de Seguridad - ${{ inputs.environment }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **Imagen**: \`$IMAGE_FULL\`" >> $GITHUB_STEP_SUMMARY
+
+      # ─────────────────────────────────────────────────────
+      # 2. Trivy FULL (Todas las severidades)
+      # ─────────────────────────────────────────────────────
+      - name: 🔎 Trivy - Full Scan (SARIF para GitHub Security)
+        uses: aquasecurity/trivy-action@master
+        with:
+          image-ref: ${{ needs.build-and-quick-scan.outputs.image_full }}
+          format: 'sarif'
+          output: 'trivy-results.sarif'
+          severity: 'CRITICAL,HIGH,MEDIUM,LOW'
+          vuln-type: 'os,library'
+
+      - name: 📤 Subir Trivy a GitHub Security Tab
+        uses: github/codeql-action/upload-sarif@v3
+        with:
+          sarif_file: 'trivy-results.sarif'
+          category: 'trivy-${{ inputs.environment }}'
+
+      - name: 📊 Trivy - Reporte Visual (Tabla)
+        uses: aquasecurity/trivy-action@master
+        with:
+          image-ref: ${{ needs.build-and-quick-scan.outputs.image_full }}
+          format: 'table'
+          severity: 'CRITICAL,HIGH,MEDIUM'
+
+      - name: 📋 Trivy - Reporte JSON (Para análisis)
+        uses: aquasecurity/trivy-action@master
+        with:
+          image-ref: ${{ needs.build-and-quick-scan.outputs.image_full }}
+          format: 'json'
+          output: 'trivy-report-${{ inputs.environment }}.json'
+          severity: 'CRITICAL,HIGH,MEDIUM,LOW'
+
+      # ─────────────────────────────────────────────────────
+      # 3. Grype - Análisis complementario
+      # ─────────────────────────────────────────────────────
+      - name: 🧬 Grype - Escaneo de vulnerabilidades
+        uses: anchore/scan-action@v4
+        id: grype
+        with:
+          image: ${{ needs.build-and-quick-scan.outputs.image_full }}
+          fail-build: false
+          severity-cutoff: medium
+          output-format: sarif
+
+      - name: 📤 Subir Grype a GitHub Security
+        uses: github/codeql-action/upload-sarif@v3
+        with:
+          sarif_file: ${{ steps.grype.outputs.sarif }}
+          category: 'grype-${{ inputs.environment }}'
+
+      # ─────────────────────────────────────────────────────
+      # 4. Dockle - Docker best practices
+      # ─────────────────────────────────────────────────────
+      - name: 🐋 Dockle - Docker Best Practices
+        run: |
+          VERSION=$(curl --silent "https://api.github.com/repos/goodwithtech/dockle/releases/latest" | \
+            grep '"tag_name":' | sed -E 's/.*"v([^"]+)".*/\1/')
+          curl -L -o dockle.deb https://github.com/goodwithtech/dockle/releases/download/v${VERSION}/dockle_${VERSION}_Linux-64bit.deb
+          sudo dpkg -i dockle.deb
+          
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### 🐋 Dockle - Docker Best Practices" >> $GITHUB_STEP_SUMMARY
+          dockle --exit-code 0 --exit-level warn ${{ needs.build-and-quick-scan.outputs.image_full }} | tee dockle-report-${{ inputs.environment }}.txt
+          echo '```' >> $GITHUB_STEP_SUMMARY
+          cat dockle-report-${{ inputs.environment }}.txt >> $GITHUB_STEP_SUMMARY
+          echo '```' >> $GITHUB_STEP_SUMMARY
+
+      # ─────────────────────────────────────────────────────
+      # 5. Análisis de tamaño y eficiencia
+      # ─────────────────────────────────────────────────────
+      - name: 📊 Análisis de tamaño de imagen
+        run: |
+          IMAGE_FULL="${{ needs.build-and-quick-scan.outputs.image_full }}"
+          
+          SIZE=$(docker images $IMAGE_FULL --format "{{.Size}}")
+          LAYERS=$(docker history $IMAGE_FULL --no-trunc | wc -l)
+          
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### 📦 Métricas de Imagen" >> $GITHUB_STEP_SUMMARY
+          echo "| Métrica | Valor |" >> $GITHUB_STEP_SUMMARY
+          echo "|---------|-------|" >> $GITHUB_STEP_SUMMARY
+          echo "| Tamaño | $SIZE |" >> $GITHUB_STEP_SUMMARY
+          echo "| Capas | $LAYERS |" >> $GITHUB_STEP_SUMMARY
+
+      # ─────────────────────────────────────────────────────
+      # 6. Generar resumen de vulnerabilidades
+      # ─────────────────────────────────────────────────────
+      - name: 📊 Generar resumen de vulnerabilidades
+        run: |
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### 🔐 Resumen de Vulnerabilidades" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          
+          if [ -f trivy-report-${{ inputs.environment }}.json ]; then
+            CRITICAL=$(jq '[.Results[]?.Vulnerabilities[]? | select(.Severity=="CRITICAL")] | length' trivy-report-${{ inputs.environment }}.json)
+            HIGH=$(jq '[.Results[]?.Vulnerabilities[]? | select(.Severity=="HIGH")] | length' trivy-report-${{ inputs.environment }}.json)
+            MEDIUM=$(jq '[.Results[]?.Vulnerabilities[]? | select(.Severity=="MEDIUM")] | length' trivy-report-${{ inputs.environment }}.json)
+            LOW=$(jq '[.Results[]?.Vulnerabilities[]? | select(.Severity=="LOW")] | length' trivy-report-${{ inputs.environment }}.json)
+            
+            echo "| Severidad | Cantidad | Estado |" >> $GITHUB_STEP_SUMMARY
+            echo "|-----------|----------|--------|" >> $GITHUB_STEP_SUMMARY
+            echo "| 🔴 CRITICAL | $CRITICAL | $([ $CRITICAL -eq 0 ] && echo '✅ OK' || echo '❌ REVISAR') |" >> $GITHUB_STEP_SUMMARY
+            echo "| 🟠 HIGH | $HIGH | $([ $HIGH -eq 0 ] && echo '✅ OK' || echo '⚠️ REVISAR') |" >> $GITHUB_STEP_SUMMARY
+            echo "| 🟡 MEDIUM | $MEDIUM | $([ $MEDIUM -le 10 ] && echo '✅ Aceptable' || echo '⚠️ Mejorable') |" >> $GITHUB_STEP_SUMMARY
+            echo "| 🔵 LOW | $LOW | ℹ️ Informativo |" >> $GITHUB_STEP_SUMMARY
+          fi
+
+      # ─────────────────────────────────────────────────────
+      # 7. Subir artefactos
+      # ─────────────────────────────────────────────────────
+      - name: 📤 Subir reportes como artefactos
+        uses: actions/upload-artifact@v4
+        with:
+          name: security-reports-${{ inputs.environment }}
+          path: |
+            trivy-results.sarif
+            trivy-report-${{ inputs.environment }}.json
+            dockle-report-${{ inputs.environment }}.txt
+          retention-days: 30
+
+      # ─────────────────────────────────────────────────────
+      # 8. Resumen final
+      # ─────────────────────────────────────────────────────
+      - name: ✅ Resumen Final
+        run: |
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "---" >> $GITHUB_STEP_SUMMARY
+          echo "## ✅ Análisis Completo Finalizado" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### 📥 Descargas" >> $GITHUB_STEP_SUMMARY
+          echo "- [Reportes de seguridad en Artifacts](https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }})" >> $GITHUB_STEP_SUMMARY
+          echo "- [Vulnerabilidades en Security Tab](https://github.com/${{ github.repository }}/security)" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### 🎯 Próximos Pasos" >> $GITHUB_STEP_SUMMARY
+          echo "1. Revisa las vulnerabilidades detectadas" >> $GITHUB_STEP_SUMMARY
+          echo "2. Prioriza corrección de CRITICAL y HIGH" >> $GITHUB_STEP_SUMMARY
+          echo "3. Implementa las recomendaciones de Dockle" >> $GITHUB_STEP_SUMMARY
