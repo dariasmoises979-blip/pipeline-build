@@ -10,7 +10,7 @@ name: Reusable Date Workflow
 on:
   workflow_call:
     secrets:
-      APP_REPO_TOKEN:
+      EXTERNAL_REPO_TOKEN: 
         required: true
         description: 'Token para acceder al repositorio app'
 
