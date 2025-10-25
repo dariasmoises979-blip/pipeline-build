@@ -82,10 +82,6 @@ on:
       SONAR_TOKEN:
         required: false
         description: 'Token de SonarCloud'
-      
-      GITHUB_TOKEN:
-        required: false
-        description: 'Token de GitHub (auto-generado)'
 
 permissions:
   actions: read
@@ -105,7 +101,7 @@ jobs:
       - name: 📦 Checkout repositorio actual
         uses: actions/checkout@v4
         with:
-          token: ${{ secrets.GITHUB_TOKEN || github.token }}
+          token: ${{ github.token }}
 
       - name: 📦 Checkout repositorio externo
         if: inputs.external_repo != ''
@@ -155,7 +151,7 @@ jobs:
         if: inputs.enable_sonar
         uses: SonarSource/sonarcloud-github-action@master
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN || github.token }}
+          GITHUB_TOKEN: ${{ github.token }}
           SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
 
       - name: ✅ Resumen de Build
