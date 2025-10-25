@@ -89,19 +89,19 @@ jobs:
       # ─────────────────────────────────────────────────────
       - name: 🔨 Construir imagen Docker
         run: |
-          cd ${{ inputs.build_context }}
-          docker build \
-            -t ${{ steps.meta.outputs.image_full }} \
-            -f ${{ inputs.dockerfile_path }} \
-            --label "build.timestamp=$(date -u +'%Y-%m-%dT%H:%M:%SZ')" \
-            --label "build.environment=${{ inputs.environment }}" \
-            --label "build.ref=${{ github.sha }}" \
-            .
-          
-          echo "" >> $GITHUB_STEP_SUMMARY
-          echo "✅ **Imagen construida exitosamente**" >> $GITHUB_STEP_SUMMARY
+            docker build \
+              -t ${{ steps.meta.outputs.image_full }} \
+              -f ${{ inputs.dockerfile_path }} \
+              --label "build.timestamp=$(date -u +'%Y-%m-%dT%H:%M:%SZ')" \
+              --label "build.environment=${{ inputs.environment }}" \
+              --label "build.ref=${{ github.sha }}" \
+              ${{ inputs.build_context }}
+                .
+              
+              echo "" >> $GITHUB_STEP_SUMMARY
+              echo "✅ **Imagen construida exitosamente**" >> $GITHUB_STEP_SUMMARY
 
-      # ─────────────────────────────────────────────────────
+          # ─────────────────────────────────────────────────────
       # 3. TEST RÁPIDO 1: Hadolint (Dockerfile lint)
       # ─────────────────────────────────────────────────────
       - name: 🧩 Hadolint - Validar Dockerfile
