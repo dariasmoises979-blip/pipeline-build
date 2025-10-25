@@ -1,0 +1,31 @@
+name: Manual Deploy to GKS QA
+
+on:
+  workflow_dispatch:
+    inputs:
+      deploy_to_gks:
+        description: "¿Desplegar a GKS QA?"
+        required: true
+        default: true
+        type: boolean
+
+jobs:
+  deploy-gks-qa:
+    name: Deploy to GKS QA
+    if: inputs.deploy_to_gks == true
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Deploy to GKS QA
+        run: |
+          echo "🚀 Deploying to GKS QA environment..."
+          # Aquí van tus comandos de despliegue a GKS
+          # Ejemplo:
+          # gcloud container clusters get-credentials $GKS_CLUSTER --zone=us-central1-a --project=$GKS_PROJECT
+          # kubectl apply -f k8s/qa/
+        env:
+          GKS_PROJECT: ${{ secrets.GKS_PROJECT }}
+          GKS_CLUSTER: ${{ secrets.GKS_CLUSTER }}
