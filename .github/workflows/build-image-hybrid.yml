@@ -69,6 +69,13 @@ jobs:
           token: ${{ secrets.EXTERNAL_REPO_TOKEN }}
           path: ${{ inputs.external_repo_path }}
           fetch-depth: 1
+      - name: 🔍 Verificar repo clonado
+        run: |
+            echo "Contenido de ${{ inputs.external_repo_path }}:"
+            ls -la ${{ inputs.external_repo_path }}
+            
+            echo -e "\nVerificando Dockerfile:"
+            test -f "${{ inputs.external_repo_path }}/${{ inputs.dockerfile_path }}" && echo "✅ Dockerfile OK" || (echo "❌ Dockerfile no encontrado" && exit 1)
 
       - name: 🐳 Setup Docker Buildx
         uses: docker/setup-buildx-action@v3
@@ -101,7 +108,7 @@ jobs:
               echo "" >> $GITHUB_STEP_SUMMARY
               echo "✅ **Imagen construida exitosamente**" >> $GITHUB_STEP_SUMMARY
 
-          # ─────────────────────────────────────────────────────
+      # ─────────────────────────────────────────────────────
       # 3. TEST RÁPIDO 1: Hadolint (Dockerfile lint)
       # ─────────────────────────────────────────────────────
       - name: 🧩 Hadolint - Validar Dockerfile
