@@ -1,374 +1,318 @@
-# .github/workflows/reusable-update-k8s.yml
-name: Reusable - Actualizar Manifiestos K8s
+########################################
+# 🔄 WORKFLOW REUSABLE: Update Kubernetes Images
+# Actualiza automáticamente las imágenes Docker en los
+# manifiestos de Kubernetes y hace commit de los cambios
+########################################
 
+name: Reusable Update K8s Images
+
+# 🔧 Definir como workflow reusable con inputs configurables
 on:
   workflow_call:
     inputs:
-      app_name:
-        required: true
-        type: string
-        description: 'Nombre de la aplicación'
-      environment:
-        required: true
-        type: string
-        description: 'Entorno (dev, staging, prod)'
-      image_tag:
-        required: true
-        type: string
-        description: 'Tag de la imagen ya construida (ej: dev-abc1234)'
       docker_image:
+        description: 'Nombre de la imagen Docker (sin tag, ej: mi-app)'
         required: true
         type: string
-        description: 'Nombre completo de la imagen (ej: usuario/app)'
-    outputs:
-      is_new_app:
-        description: 'Indica si es una app nueva'
-        value: ${{ jobs.update-manifests.outputs.is_new_app }}
-      changes_made:
-        description: 'Indica si se realizaron cambios'
-        value: ${{ jobs.update-manifests.outputs.changes_made }}
+      dockerhub_username:
+        description: 'Usuario de Docker Hub (texto literal, no secret)'
+        required: true
+        type: string
+      environment:
+        description: 'Entorno de deployment (pro/pre/staging/dev)'
+        required: true
+        type: string
+      commit_sha:
+        description: 'SHA del commit para generar el tag'
+        required: true
+        type: string
+      k8s_manifests_path:
+        description: 'Ruta a los manifiestos de Kubernetes'
+        required: false
+        type: string
+        default: 'kubernetes/entornos'
+      git_user_name:
+        description: 'Nombre del usuario para el commit'
+        required: false
+        type: string
+        default: 'GitHub Actions Bot'
+      git_user_email:
+        description: 'Email del usuario para el commit'
+        required: false
+        type: string
+        default: 'github-actions[bot]@users.noreply.github.com'
+      target_branch:
+        description: 'Rama donde hacer el commit (default: rama actual)'
+        required: false
+        type: string
+        default: ''
+      create_pr:
+        description: 'Crear PR en lugar de commit directo (true/false)'
+        required: false
+        type: boolean
+        default: false
+    secrets:
+      GH_PAT:
+        description: 'Personal Access Token para hacer commits (opcional si se usa GITHUB_TOKEN)'
+        required: false
 
 jobs:
-  update-manifests:
-    name: Actualizar Manifiestos
+  # ═══════════════════════════════════════════════════════════
+  # 🔄 JOB: UPDATE KUBERNETES MANIFESTS
+  # ═══════════════════════════════════════════════════════════
+  update-k8s-manifests:
+    name: Update Kubernetes Image Tags
     runs-on: ubuntu-latest
-    outputs:
-      is_new_app: ${{ steps.check-app.outputs.is_new }}
-      changes_made: ${{ steps.check-changes.outputs.has_changes }}
     
     steps:
       # ═══════════════════════════════════════════════════════════
-      # 📥 CHECKOUT DEL REPOSITORIO
+      # 📥 PASO 1: CHECKOUT DEL REPOSITORIO
       # ═══════════════════════════════════════════════════════════
       - name: Checkout repository
         uses: actions/checkout@v4
         with:
-          token: ${{ secrets.GITHUB_TOKEN }}
           fetch-depth: 0
+          token: ${{ secrets.GH_PAT || github.token }}
+          ref: ${{ inputs.target_branch || github.ref }}
 
       # ═══════════════════════════════════════════════════════════
-      # ⚙️ CONFIGURAR GIT
+      # 🏷️ PASO 2: GENERAR TAG DE LA IMAGEN
       # ═══════════════════════════════════════════════════════════
-      - name: Configurar Git
+      - name: Generate image tag
+        id: image_tag
         run: |
-          git config user.name "github-actions[bot]"
-          git config user.email "github-actions[bot]@users.noreply.github.com"
+          ENVIRONMENT="${{ inputs.environment }}"
+          COMMIT_SHA="${{ inputs.commit_sha }}"
+          SHORT_SHA="${COMMIT_SHA:0:7}"
+          
+          # Tag principal: environment-shortsha (ej: pro-a1b2c3d)
+          IMAGE_TAG="${ENVIRONMENT}-${SHORT_SHA}"
+          FULL_IMAGE="${{ inputs.dockerhub_username }}/${{ inputs.docker_image }}:${IMAGE_TAG}"
+          
+          echo "tag=${IMAGE_TAG}" >> $GITHUB_OUTPUT
+          echo "full_image=${FULL_IMAGE}" >> $GITHUB_OUTPUT
+          
+          echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+          echo "🏷️  IMAGEN A ACTUALIZAR EN MANIFIESTOS K8S"
+          echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+          echo "📦 Imagen: ${{ inputs.docker_image }}"
+          echo "👤 Usuario: ${{ inputs.dockerhub_username }}"
+          echo "🌍 Entorno: ${ENVIRONMENT}"
+          echo "🔗 Commit SHA: ${COMMIT_SHA}"
+          echo "🏷️  Tag: ${IMAGE_TAG}"
+          echo "🐳 Imagen completa: ${FULL_IMAGE}"
+          echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
 
       # ═══════════════════════════════════════════════════════════
-      # 🔍 VERIFICAR SI LA APP EXISTE
+      # 🔍 PASO 3: VERIFICAR ESTRUCTURA DE MANIFIESTOS
       # ═══════════════════════════════════════════════════════════
-      - name: Verificar si la app existe
-        id: check-app
+      - name: Verify manifests structure
         run: |
-          APP_PATH="kubernetes/${{ inputs.environment }}/${{ inputs.app_name }}"
-          
           echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-          echo "🔍 VERIFICANDO APLICACIÓN"
+          echo "📂 ESTRUCTURA DE MANIFIESTOS KUBERNETES"
           echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-          echo "📦 App: ${{ inputs.app_name }}"
-          echo "🌍 Entorno: ${{ inputs.environment }}"
-          echo "📁 Path: $APP_PATH"
           
-          if [ -d "$APP_PATH" ]; then
-            echo "is_new=false" >> $GITHUB_OUTPUT
-            echo "✅ App EXISTENTE - Se actualizará"
+          if [[ -d "${{ inputs.k8s_manifests_path }}" ]]; then
+            echo "✅ Directorio encontrado: ${{ inputs.k8s_manifests_path }}"
             echo ""
-            echo "📋 Archivos encontrados:"
-            find "$APP_PATH" -type f \( -name "*.yaml" -o -name "*.yml" \) | while read file; do
-              echo "   • $file"
-            done
+            echo "📋 Archivos YAML encontrados:"
+            find "${{ inputs.k8s_manifests_path }}" -type f \( -name "*.yaml" -o -name "*.yml" \) -exec echo "   • {}" \;
+            echo ""
+            echo "🔍 Buscando referencias de imagen existentes:"
+            grep -r "image:" "${{ inputs.k8s_manifests_path }}" --include="*.yaml" --include="*.yml" || echo "   ℹ️  No se encontraron referencias 'image:'"
           else
-            echo "is_new=true" >> $GITHUB_OUTPUT
-            echo "🆕 App NUEVA - Se creará estructura básica"
-            mkdir -p "$APP_PATH"
-            
-            # Crear deployment básico
-            cat > "$APP_PATH/deployment.yaml" <<EOF
-          apiVersion: apps/v1
-          kind: Deployment
-          metadata:
-            name: ${{ inputs.app_name }}
-            namespace: ${{ inputs.environment }}
-            labels:
-              app: ${{ inputs.app_name }}
-              environment: ${{ inputs.environment }}
-          spec:
-            replicas: 1
-            selector:
-              matchLabels:
-                app: ${{ inputs.app_name }}
-            template:
-              metadata:
-                labels:
-                  app: ${{ inputs.app_name }}
-                  environment: ${{ inputs.environment }}
-              spec:
-                containers:
-                - name: ${{ inputs.app_name }}
-                  image: ${{ inputs.docker_image }}:${{ inputs.image_tag }}
-                  ports:
-                  - containerPort: 8080
-                  resources:
-                    requests:
-                      memory: "128Mi"
-                      cpu: "100m"
-                    limits:
-                      memory: "512Mi"
-                      cpu: "500m"
-          EOF
-            
-            # Crear service básico
-            cat > "$APP_PATH/service.yaml" <<EOF
-          apiVersion: v1
-          kind: Service
-          metadata:
-            name: ${{ inputs.app_name }}
-            namespace: ${{ inputs.environment }}
-            labels:
-              app: ${{ inputs.app_name }}
-          spec:
-            selector:
-              app: ${{ inputs.app_name }}
-            ports:
-            - protocol: TCP
-              port: 80
-              targetPort: 8080
-            type: ClusterIP
-          EOF
-            
-            echo ""
-            echo "📦 Archivos creados:"
-            echo "   • $APP_PATH/deployment.yaml"
-            echo "   • $APP_PATH/service.yaml"
+            echo "❌ Directorio no encontrado: ${{ inputs.k8s_manifests_path }}"
+            echo "⚠️  Se creará durante el proceso de actualización si es necesario"
           fi
           echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
 
       # ═══════════════════════════════════════════════════════════
-      # 🖼️ ACTUALIZAR IMAGEN EN MANIFIESTOS
+      # 🔄 PASO 4: ACTUALIZAR IMÁGENES EN MANIFIESTOS
       # ═══════════════════════════════════════════════════════════
-      - name: Actualizar imagen en manifiestos
-        id: update-image
+      - name: Update image tags in manifests
+        id: update
         run: |
-          APP_PATH="kubernetes/${{ inputs.environment }}/${{ inputs.app_name }}"
-          NEW_IMAGE="${{ inputs.docker_image }}:${{ inputs.image_tag }}"
+          MANIFESTS_PATH="${{ inputs.k8s_manifests_path }}"
+          FULL_IMAGE="${{ steps.image_tag.outputs.full_image }}"
+          DOCKER_IMAGE="${{ inputs.docker_image }}"
+          DOCKERHUB_USER="${{ inputs.dockerhub_username }}"
           
           echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-          echo "🖼️  ACTUALIZANDO IMAGEN DOCKER"
+          echo "🔄 ACTUALIZANDO MANIFIESTOS KUBERNETES"
           echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-          echo "🆕 Nueva imagen: $NEW_IMAGE"
-          echo ""
           
-          UPDATED_COUNT=0
-          OLD_IMAGE=""
+          if [[ ! -d "${MANIFESTS_PATH}" ]]; then
+            echo "❌ Error: Directorio ${MANIFESTS_PATH} no existe"
+            exit 1
+          fi
           
-          # Buscar y actualizar todos los archivos YAML
-          for yaml_file in $(find "$APP_PATH" -type f \( -name "*.yaml" -o -name "*.yml" \)); do
-            if grep -q "image:" "$yaml_file"; then
-              # Capturar imagen anterior (solo la primera vez)
-              if [ -z "$OLD_IMAGE" ]; then
-                OLD_IMAGE=$(grep "image:" "$yaml_file" | head -1 | awk '{print $2}' | tr -d '"' | tr -d "'")
-                echo "📜 Imagen anterior: $OLD_IMAGE"
+          # Buscar y actualizar archivos YAML
+          FILES_UPDATED=0
+          TOTAL_REPLACEMENTS=0
+          
+          while IFS= read -r -d '' file; do
+            echo ""
+            echo "📄 Procesando: ${file}"
+            
+            # Buscar líneas con 'image:' que contengan la imagen objetivo
+            if grep -q "image:.*${DOCKERHUB_USER}/${DOCKER_IMAGE}" "${file}"; then
+              # Crear backup
+              cp "${file}" "${file}.bak"
+              
+              # Contar ocurrencias antes
+              BEFORE_COUNT=$(grep -c "image:.*${DOCKERHUB_USER}/${DOCKER_IMAGE}" "${file}" || echo "0")
+              
+              # Actualizar imagen usando sed
+              # Busca: image: usuario/imagen:cualquier-tag
+              # Reemplaza por: image: usuario/imagen:nuevo-tag
+              sed -i "s|image: ${DOCKERHUB_USER}/${DOCKER_IMAGE}:.*|image: ${FULL_IMAGE}|g" "${file}"
+              
+              # También manejar casos sin espacios después de ':'
+              sed -i "s|image:${DOCKERHUB_USER}/${DOCKER_IMAGE}:.*|image: ${FULL_IMAGE}|g" "${file}"
+              
+              # Contar ocurrencias después
+              AFTER_COUNT=$(grep -c "image: ${FULL_IMAGE}" "${file}" || echo "0")
+              
+              if [[ "${AFTER_COUNT}" -gt 0 ]]; then
+                echo "   ✅ Actualizado: ${AFTER_COUNT} ocurrencia(s)"
+                FILES_UPDATED=$((FILES_UPDATED + 1))
+                TOTAL_REPLACEMENTS=$((TOTAL_REPLACEMENTS + AFTER_COUNT))
+                
+                # Mostrar diferencias
+                echo "   📝 Cambios realizados:"
+                diff -u "${file}.bak" "${file}" | grep "^[-+]" | grep "image:" || echo "   ℹ️  Sin cambios visibles"
+              else
+                echo "   ℹ️  Sin cambios"
+                mv "${file}.bak" "${file}"  # Restaurar si no hubo cambios
               fi
-              
-              # Actualizar imagen
-              sed -i "s|image:.*|image: $NEW_IMAGE|g" "$yaml_file"
-              
-              echo "✅ Actualizado: $(basename $yaml_file)"
-              UPDATED_COUNT=$((UPDATED_COUNT + 1))
+            else
+              echo "   ⏭️  No contiene la imagen ${DOCKERHUB_USER}/${DOCKER_IMAGE}"
             fi
-          done
+          done < <(find "${MANIFESTS_PATH}" -type f \( -name "*.yaml" -o -name "*.yml" \) -print0)
+          
+          # Limpiar backups
+          find "${MANIFESTS_PATH}" -name "*.bak" -delete
           
           echo ""
-          echo "📊 Total archivos actualizados: $UPDATED_COUNT"
-          echo "old_image=$OLD_IMAGE" >> $GITHUB_OUTPUT
-          echo "updated_count=$UPDATED_COUNT" >> $GITHUB_OUTPUT
           echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+          echo "📊 RESUMEN DE ACTUALIZACIÓN"
+          echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+          echo "📁 Archivos actualizados: ${FILES_UPDATED}"
+          echo "🔄 Total de reemplazos: ${TOTAL_REPLACEMENTS}"
+          echo "🐳 Nueva imagen: ${FULL_IMAGE}"
+          echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+          
+          # Guardar outputs
+          echo "files_updated=${FILES_UPDATED}" >> $GITHUB_OUTPUT
+          echo "total_replacements=${TOTAL_REPLACEMENTS}" >> $GITHUB_OUTPUT
 
       # ═══════════════════════════════════════════════════════════
-      # 🔎 VERIFICAR SI HAY CAMBIOS
+      # 📊 PASO 5: VERIFICAR CAMBIOS
       # ═══════════════════════════════════════════════════════════
-      - name: Verificar cambios
-        id: check-changes
+      - name: Check for changes
+        id: git_status
         run: |
-          echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-          echo "🔎 VERIFICANDO CAMBIOS"
-          echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+          git diff --quiet || echo "has_changes=true" >> $GITHUB_OUTPUT
           
           if git diff --quiet; then
+            echo "ℹ️  No hay cambios para commitear"
             echo "has_changes=false" >> $GITHUB_OUTPUT
-            echo "⚠️  No hay cambios para commitear"
           else
+            echo "✅ Se detectaron cambios en los manifiestos"
             echo "has_changes=true" >> $GITHUB_OUTPUT
-            echo "✅ Cambios detectados"
             echo ""
-            echo "📋 Archivos modificados:"
-            git diff --name-only | while read file; do
-              echo "   • $file"
-            done
-            echo ""
-            echo "📊 Estadísticas:"
-            git diff --stat
+            echo "📝 Archivos modificados:"
+            git diff --name-only
           fi
-          echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
 
       # ═══════════════════════════════════════════════════════════
-      # 📊 GENERAR INFORME DE CAMBIOS
+      # 🔐 PASO 6: CONFIGURAR GIT
       # ═══════════════════════════════════════════════════════════
-      - name: Generar informe
-        if: steps.check-changes.outputs.has_changes == 'true'
-        id: generate-report
+      - name: Configure Git
+        if: steps.git_status.outputs.has_changes == 'true'
         run: |
-          TIMESTAMP=$(date '+%Y-%m-%d %H:%M:%S %Z')
-          REPORT_FILE="deployment-report.md"
-          
-          cat > "$REPORT_FILE" <<EOF
-          # 🚀 Informe de Despliegue
-          
-          ## 📦 Información General
-          | Campo | Valor |
-          |-------|-------|
-          | **Aplicación** | \`${{ inputs.app_name }}\` |
-          | **Entorno** | \`${{ inputs.environment }}\` |
-          | **Tipo** | ${{ steps.check-app.outputs.is_new == 'true' && '🆕 Nueva Aplicación' || '🔄 Actualización' }} |
-          | **Usuario** | @${{ github.actor }} |
-          | **Fecha** | ${TIMESTAMP} |
-          | **Commit** | \`${{ github.sha }}\` |
-          | **Rama** | \`${{ github.ref_name }}\` |
-          
-          ## 🐳 Imagen Docker
-          | Concepto | Valor |
-          |----------|-------|
-          | **Nueva Imagen** | \`${{ inputs.docker_image }}:${{ inputs.image_tag }}\` |
-          | **Imagen Anterior** | \`${{ steps.update-image.outputs.old_image || 'N/A (Nueva App)' }}\` |
-          | **Archivos Actualizados** | ${{ steps.update-image.outputs.updated_count }} |
-          
-          ## 📝 Archivos Modificados
-          \`\`\`
-          $(git diff --name-only)
-          \`\`\`
-          
-          ## 🔍 Cambios Detallados
-          <details>
-          <summary>Ver diff completo</summary>
-          
-          \`\`\`diff
-          $(git diff)
-          \`\`\`
-          </details>
-          
-          ## 🔗 Links
-          - **Workflow Run**: [${{ github.run_id }}](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }})
-          - **Commit**: [${{ github.sha }}](${{ github.server_url }}/${{ github.repository }}/commit/${{ github.sha }})
-          
-          ---
-          *🤖 Generado automáticamente por GitHub Actions*
-          EOF
-          
-          echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-          echo "📊 INFORME GENERADO"
-          echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-          cat "$REPORT_FILE"
-          echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+          git config --global user.name "${{ inputs.git_user_name }}"
+          git config --global user.email "${{ inputs.git_user_email }}"
 
       # ═══════════════════════════════════════════════════════════
-      # 💾 COMMIT Y PUSH DE CAMBIOS
+      # 💾 PASO 7A: COMMIT DIRECTO (si create_pr = false)
       # ═══════════════════════════════════════════════════════════
-      - name: Commit y Push cambios
-        if: steps.check-changes.outputs.has_changes == 'true'
+      - name: Commit and push changes
+        if: steps.git_status.outputs.has_changes == 'true' && inputs.create_pr == false
         run: |
-          APP_PATH="kubernetes/${{ inputs.environment }}/${{ inputs.app_name }}"
+          ENVIRONMENT="${{ inputs.environment }}"
+          IMAGE_TAG="${{ steps.image_tag.outputs.tag }}"
           
-          git add "$APP_PATH/"
-          
-          COMMIT_MSG="🚀 Deploy: ${{ inputs.app_name }} → ${{ inputs.environment }}
+          git add ${{ inputs.k8s_manifests_path }}
+          git commit -m "🚀 Update K8s image to ${IMAGE_TAG} [${ENVIRONMENT}]
 
-          📦 App: ${{ inputs.app_name }}
-          🌍 Env: ${{ inputs.environment }}
-          🐳 Image: ${{ inputs.docker_image }}:${{ inputs.image_tag }}
-          ${{ steps.check-app.outputs.is_new == 'true' && '🆕 Type: New Application' || '🔄 Type: Update' }}
-          👤 User: ${{ github.actor }}
-          🔗 Commit: ${{ github.sha }}
-          📅 Date: $(date '+%Y-%m-%d %H:%M:%S %Z')
+          - Image: ${{ steps.image_tag.outputs.full_image }}
+          - Environment: ${ENVIRONMENT}
+          - Files updated: ${{ steps.update.outputs.files_updated }}
+          - Total replacements: ${{ steps.update.outputs.total_replacements }}
+          - Commit SHA: ${{ inputs.commit_sha }}
+          - Triggered by: ${{ github.actor }}
           
-          Workflow: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+          Auto-generated by workflow: ${{ github.workflow }}"
           
-          git commit -m "$COMMIT_MSG"
           git push
           
           echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-          echo "✅ CAMBIOS PUSHEADOS AL REPOSITORIO"
-          echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-          echo "🎯 ArgoCD detectará los cambios automáticamente via webhook"
+          echo "✅ CAMBIOS COMMITEADOS Y PUSHEADOS"
           echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
 
       # ═══════════════════════════════════════════════════════════
-      # 💬 COMENTAR EN PR (SI EXISTE)
+      # 🔀 PASO 7B: CREAR PULL REQUEST (si create_pr = true)
       # ═══════════════════════════════════════════════════════════
-      - name: Comentar en PR
-        if: steps.check-changes.outputs.has_changes == 'true' && github.event_name == 'pull_request'
-        uses: actions/github-script@v7
+      - name: Create Pull Request
+        if: steps.git_status.outputs.has_changes == 'true' && inputs.create_pr == true
+        uses: peter-evans/create-pull-request@v5
         with:
-          script: |
-            const isNew = '${{ steps.check-app.outputs.is_new }}' === 'true';
-            const timestamp = new Date().toLocaleString('es-ES', { 
-              timeZone: 'Europe/Madrid',
-              dateStyle: 'full',
-              timeStyle: 'long'
-            });
+          token: ${{ secrets.GH_PAT || github.token }}
+          commit-message: |
+            🚀 Update K8s image to ${{ steps.image_tag.outputs.tag }} [${{ inputs.environment }}]
+          branch: update-k8s-image-${{ inputs.environment }}-${{ steps.image_tag.outputs.tag }}
+          delete-branch: true
+          title: "🚀 Update K8s Image: ${{ inputs.docker_image }}:${{ steps.image_tag.outputs.tag }}"
+          body: |
+            ## 🐳 Kubernetes Image Update
             
-            github.rest.issues.createComment({
-              issue_number: context.issue.number,
-              owner: context.repo.owner,
-              repo: context.repo.repo,
-              body: `### ${isNew ? '🆕' : '🔄'} Despliegue ${isNew ? 'Inicial' : 'Actualizado'}
-              
-              | Campo | Valor |
-              |-------|-------|
-              | **Aplicación** | \`${{ inputs.app_name }}\` |
-              | **Entorno** | \`${{ inputs.environment }}\` |
-              | **Imagen** | \`${{ inputs.docker_image }}:${{ inputs.image_tag }}\` |
-              | **Usuario** | @${{ github.actor }} |
-              | **Fecha** | ${timestamp} |
-              
-              ${isNew ? '📦 Se ha creado la estructura inicial de la aplicación.' : '✅ Los manifiestos de Kubernetes han sido actualizados.'}
-              
-              🎯 **ArgoCD** detectará los cambios automáticamente y sincronizará la aplicación.`
-            })
+            **Environment:** `${{ inputs.environment }}`
+            **New Image:** `${{ steps.image_tag.outputs.full_image }}`
+            
+            ### 📊 Changes Summary
+            - **Files Updated:** ${{ steps.update.outputs.files_updated }}
+            - **Total Replacements:** ${{ steps.update.outputs.total_replacements }}
+            - **Commit SHA:** `${{ inputs.commit_sha }}`
+            
+            ### 🔗 Related Links
+            - [Docker Hub Image](https://hub.docker.com/r/${{ inputs.dockerhub_username }}/${{ inputs.docker_image }}/tags)
+            - [Workflow Run](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }})
+            
+            ---
+            *Auto-generated by `${{ github.workflow }}` triggered by @${{ github.actor }}*
+          labels: |
+            kubernetes
+            deployment
+            automated
+            ${{ inputs.environment }}
 
       # ═══════════════════════════════════════════════════════════
-      # ❌ CREAR ISSUE SI FALLA
+      # ✅ PASO 8: REPORTE FINAL
       # ═══════════════════════════════════════════════════════════
-      - name: Crear Issue si falla
-        if: failure()
-        uses: actions/github-script@v7
-        with:
-          script: |
-            github.rest.issues.create({
-              owner: context.repo.owner,
-              repo: context.repo.repo,
-              title: `❌ Fallo en actualización de manifiestos: ${{ inputs.app_name }} (${{ inputs.environment }})`,
-              body: `## ❌ Error en Actualización de Manifiestos K8s
-              
-              El proceso de actualización de manifiestos ha fallado.
-              
-              ### 📋 Detalles
-              | Campo | Valor |
-              |-------|-------|
-              | **Aplicación** | \`${{ inputs.app_name }}\` |
-              | **Entorno** | \`${{ inputs.environment }}\` |
-              | **Imagen** | \`${{ inputs.docker_image }}:${{ inputs.image_tag }}\` |
-              | **Usuario** | @${{ github.actor }} |
-              | **Commit** | \`${{ github.sha }}\` |
-              | **Workflow** | [Ver logs](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}) |
-              
-              ### 🔍 Acciones Recomendadas
-              1. Revisar los logs del workflow
-              2. Verificar permisos del token de GitHub
-              3. Comprobar estructura del directorio \`kubernetes/${{ inputs.environment }}/\`
-              4. Validar sintaxis de los archivos YAML
-              
-              ### 🔗 Links
-              - [Workflow Run](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }})
-              - [Commit](${{ github.server_url }}/${{ github.repository }}/commit/${{ github.sha }})`,
-              labels: ['deployment', 'failed', 'kubernetes']
-            })
+      - name: Final Report
+        if: always()
+        run: |
+          echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+          echo "📊 REPORTE FINAL DE ACTUALIZACIÓN"
+          echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+          echo "🐳 Imagen: ${{ steps.image_tag.outputs.full_image }}"
+          echo "🌍 Entorno: ${{ inputs.environment }}"
+          echo "📁 Archivos actualizados: ${{ steps.update.outputs.files_updated }}"
+          echo "🔄 Reemplazos totales: ${{ steps.update.outputs.total_replacements }}"
+          echo "💾 Cambios detectados: ${{ steps.git_status.outputs.has_changes }}"
+          echo "🔀 Crear PR: ${{ inputs.create_pr }}"
+          echo "👤 Ejecutado por: ${{ github.actor }}"
+          echo "🕐 Fecha: $(date -u +'%Y-%m-%d %H:%M:%S UTC')"
+          echo "🔗 Workflow: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+          echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
