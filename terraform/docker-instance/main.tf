@@ -77,7 +77,7 @@ resource "google_compute_instance_template" "app_template" {
     scopes = ["https://www.googleapis.com/auth/cloud-platform"]
   }
 
-  metadata_startup_script = <<-EOT
+metadata_startup_script = <<-EOT
 #!/bin/bash
 set -e
 
@@ -145,8 +145,7 @@ fi
 
 echo "Startup script completed" > /var/log/startup-script.log
 EOT
-
-
+}
 #######################################
 # INSTANCE GROUP
 #######################################
