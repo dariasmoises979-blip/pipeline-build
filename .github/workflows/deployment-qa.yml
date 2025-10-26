@@ -1,10 +1,10 @@
 ########################################
-# 🔄 WORKFLOW REUSABLE: Update Kubernetes Images
-# Actualiza automáticamente las imágenes Docker en los
-# manifiestos de Kubernetes y hace commit de los cambios
+# 🔄 WORKFLOW REUSABLE: Find Latest Image & Update K8s
+# Busca la última imagen en Docker Hub creada por el pipeline
+# y actualiza los manifiestos de Kubernetes automáticamente
 ########################################
 
-name: Reusable Update K8s Images
+name: Reusable Find & Update K8s Images
 
 # 🔧 Definir como workflow reusable con inputs configurables
 on:
@@ -20,10 +20,6 @@ on:
         type: string
       environment:
         description: 'Entorno de deployment (pro/pre/staging/dev)'
-        required: true
-        type: string
-      commit_sha:
-        description: 'SHA del commit para generar el tag'
         required: true
         type: string
       k8s_manifests_path:
@@ -51,17 +47,25 @@ on:
         required: false
         type: boolean
         default: false
+      tag_pattern:
+        description: 'Patrón de tag a buscar (ej: pro-*, staging-*)'
+        required: false
+        type: string
+        default: ''
     secrets:
+      DOCKERHUB_TOKEN:
+        description: 'Token de Docker Hub para consultar API'
+        required: true
       GH_PAT:
         description: 'Personal Access Token para hacer commits (opcional si se usa GITHUB_TOKEN)'
         required: false
 
 jobs:
   # ═══════════════════════════════════════════════════════════
-  # 🔄 JOB: UPDATE KUBERNETES MANIFESTS
+  # 🔍 JOB: FIND LATEST IMAGE & UPDATE K8S MANIFESTS
   # ═══════════════════════════════════════════════════════════
-  update-k8s-manifests:
-    name: Update Kubernetes Image Tags
+  find-and-update:
+    name: Find Latest Image & Update K8s
     runs-on: ubuntu-latest
     
     steps:
@@ -76,32 +80,98 @@ jobs:
           ref: ${{ inputs.target_branch || github.ref }}
 
       # ═══════════════════════════════════════════════════════════
-      # 🏷️ PASO 2: GENERAR TAG DE LA IMAGEN
+      # 🐳 PASO 2: BUSCAR ÚLTIMA IMAGEN EN DOCKER HUB
       # ═══════════════════════════════════════════════════════════
-      - name: Generate image tag
-        id: image_tag
+      - name: Find latest Docker image
+        id: find_image
+        env:
+          DOCKERHUB_TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}
+          DOCKERHUB_USERNAME: ${{ inputs.dockerhub_username }}
+          DOCKER_IMAGE: ${{ inputs.docker_image }}
+          ENVIRONMENT: ${{ inputs.environment }}
+          TAG_PATTERN: ${{ inputs.tag_pattern }}
         run: |
-          ENVIRONMENT="${{ inputs.environment }}"
-          COMMIT_SHA="${{ inputs.commit_sha }}"
-          SHORT_SHA="${COMMIT_SHA:0:7}"
-          
-          # Tag principal: environment-shortsha (ej: pro-a1b2c3d)
-          IMAGE_TAG="${ENVIRONMENT}-${SHORT_SHA}"
-          FULL_IMAGE="${{ inputs.dockerhub_username }}/${{ inputs.docker_image }}:${IMAGE_TAG}"
-          
-          echo "tag=${IMAGE_TAG}" >> $GITHUB_OUTPUT
-          echo "full_image=${FULL_IMAGE}" >> $GITHUB_OUTPUT
-          
           echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-          echo "🏷️  IMAGEN A ACTUALIZAR EN MANIFIESTOS K8S"
+          echo "🔍 BUSCANDO ÚLTIMA IMAGEN EN DOCKER HUB"
           echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-          echo "📦 Imagen: ${{ inputs.docker_image }}"
-          echo "👤 Usuario: ${{ inputs.dockerhub_username }}"
+          echo "📦 Repositorio: ${DOCKERHUB_USERNAME}/${DOCKER_IMAGE}"
           echo "🌍 Entorno: ${ENVIRONMENT}"
-          echo "🔗 Commit SHA: ${COMMIT_SHA}"
-          echo "🏷️  Tag: ${IMAGE_TAG}"
-          echo "🐳 Imagen completa: ${FULL_IMAGE}"
+          
+          # Determinar patrón de búsqueda
+          if [[ -n "${TAG_PATTERN}" ]]; then
+            SEARCH_PATTERN="${TAG_PATTERN}"
+          else
+            SEARCH_PATTERN="${ENVIRONMENT}-"
+          fi
+          echo "🔎 Patrón de búsqueda: ${SEARCH_PATTERN}*"
+          echo ""
+          
+          # Obtener token de Docker Hub
+          echo "🔐 Obteniendo token de autenticación..."
+          TOKEN_RESPONSE=$(curl -s -X POST \
+            -H "Content-Type: application/json" \
+            -d "{\"username\":\"${DOCKERHUB_USERNAME}\",\"password\":\"${DOCKERHUB_TOKEN}\"}" \
+            https://hub.docker.com/v2/users/login/)
+          
+          HUB_TOKEN=$(echo "${TOKEN_RESPONSE}" | jq -r '.token // empty')
+          
+          if [[ -z "${HUB_TOKEN}" || "${HUB_TOKEN}" == "null" ]]; then
+            echo "❌ Error: No se pudo obtener token de Docker Hub"
+            echo "Respuesta: ${TOKEN_RESPONSE}"
+            exit 1
+          fi
+          
+          echo "✅ Token obtenido exitosamente"
+          echo ""
+          
+          # Consultar tags de la imagen
+          echo "📋 Consultando tags disponibles..."
+          TAGS_RESPONSE=$(curl -s -H "Authorization: Bearer ${HUB_TOKEN}" \
+            "https://hub.docker.com/v2/repositories/${DOCKERHUB_USERNAME}/${DOCKER_IMAGE}/tags?page_size=100")
+          
+          # Verificar si hay error
+          if echo "${TAGS_RESPONSE}" | jq -e '.message' > /dev/null 2>&1; then
+            echo "❌ Error al consultar Docker Hub:"
+            echo "${TAGS_RESPONSE}" | jq -r '.message'
+            exit 1
+          fi
+          
+          # Filtrar tags que coincidan con el patrón del entorno
+          echo "🔎 Filtrando tags con patrón '${SEARCH_PATTERN}'..."
+          MATCHING_TAGS=$(echo "${TAGS_RESPONSE}" | jq -r --arg pattern "${SEARCH_PATTERN}" \
+            '.results[] | select(.name | startswith($pattern)) | "\(.last_updated)|\(.name)"' | sort -r)
+          
+          if [[ -z "${MATCHING_TAGS}" ]]; then
+            echo "❌ No se encontraron tags que coincidan con el patrón '${SEARCH_PATTERN}'"
+            echo ""
+            echo "📋 Tags disponibles:"
+            echo "${TAGS_RESPONSE}" | jq -r '.results[].name' | head -20
+            exit 1
+          fi
+          
+          echo "✅ Tags encontrados:"
+          echo "${MATCHING_TAGS}" | head -10
+          echo ""
+          
+          # Obtener el tag más reciente (primera línea después de ordenar)
+          LATEST_TAG=$(echo "${MATCHING_TAGS}" | head -1 | cut -d'|' -f2)
+          LATEST_DATE=$(echo "${MATCHING_TAGS}" | head -1 | cut -d'|' -f1)
+          
+          FULL_IMAGE="${DOCKERHUB_USERNAME}/${DOCKER_IMAGE}:${LATEST_TAG}"
+          
           echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+          echo "✅ IMAGEN MÁS RECIENTE ENCONTRADA"
+          echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+          echo "🐳 Imagen completa: ${FULL_IMAGE}"
+          echo "🏷️  Tag: ${LATEST_TAG}"
+          echo "📅 Fecha: ${LATEST_DATE}"
+          echo "🔗 Docker Hub: https://hub.docker.com/r/${DOCKERHUB_USERNAME}/${DOCKER_IMAGE}/tags"
+          echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+          
+          # Guardar outputs
+          echo "full_image=${FULL_IMAGE}" >> $GITHUB_OUTPUT
+          echo "tag=${LATEST_TAG}" >> $GITHUB_OUTPUT
+          echo "updated_date=${LATEST_DATE}" >> $GITHUB_OUTPUT
 
       # ═══════════════════════════════════════════════════════════
       # 🔍 PASO 3: VERIFICAR ESTRUCTURA DE MANIFIESTOS
@@ -122,7 +192,7 @@ jobs:
             grep -r "image:" "${{ inputs.k8s_manifests_path }}" --include="*.yaml" --include="*.yml" || echo "   ℹ️  No se encontraron referencias 'image:'"
           else
             echo "❌ Directorio no encontrado: ${{ inputs.k8s_manifests_path }}"
-            echo "⚠️  Se creará durante el proceso de actualización si es necesario"
+            exit 1
           fi
           echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
 
@@ -131,12 +201,12 @@ jobs:
       # ═══════════════════════════════════════════════════════════
       - name: Update image tags in manifests
         id: update
+        env:
+          MANIFESTS_PATH: ${{ inputs.k8s_manifests_path }}
+          FULL_IMAGE: ${{ steps.find_image.outputs.full_image }}
+          DOCKER_IMAGE: ${{ inputs.docker_image }}
+          DOCKERHUB_USER: ${{ inputs.dockerhub_username }}
         run: |
-          MANIFESTS_PATH="${{ inputs.k8s_manifests_path }}"
-          FULL_IMAGE="${{ steps.image_tag.outputs.full_image }}"
-          DOCKER_IMAGE="${{ inputs.docker_image }}"
-          DOCKERHUB_USER="${{ inputs.dockerhub_username }}"
-          
           echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
           echo "🔄 ACTUALIZANDO MANIFIESTOS KUBERNETES"
           echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
@@ -241,16 +311,17 @@ jobs:
         if: steps.git_status.outputs.has_changes == 'true' && inputs.create_pr == false
         run: |
           ENVIRONMENT="${{ inputs.environment }}"
-          IMAGE_TAG="${{ steps.image_tag.outputs.tag }}"
+          IMAGE_TAG="${{ steps.find_image.outputs.tag }}"
+          UPDATED_DATE="${{ steps.find_image.outputs.updated_date }}"
           
           git add ${{ inputs.k8s_manifests_path }}
           git commit -m "🚀 Update K8s image to ${IMAGE_TAG} [${ENVIRONMENT}]
 
-          - Image: ${{ steps.image_tag.outputs.full_image }}
+          - Image: ${{ steps.find_image.outputs.full_image }}
           - Environment: ${ENVIRONMENT}
+          - Image Date: ${UPDATED_DATE}
           - Files updated: ${{ steps.update.outputs.files_updated }}
           - Total replacements: ${{ steps.update.outputs.total_replacements }}
-          - Commit SHA: ${{ inputs.commit_sha }}
           - Triggered by: ${{ github.actor }}
           
           Auto-generated by workflow: ${{ github.workflow }}"
@@ -270,20 +341,20 @@ jobs:
         with:
           token: ${{ secrets.GH_PAT || github.token }}
           commit-message: |
-            🚀 Update K8s image to ${{ steps.image_tag.outputs.tag }} [${{ inputs.environment }}]
-          branch: update-k8s-image-${{ inputs.environment }}-${{ steps.image_tag.outputs.tag }}
+            🚀 Update K8s image to ${{ steps.find_image.outputs.tag }} [${{ inputs.environment }}]
+          branch: update-k8s-image-${{ inputs.environment }}-${{ steps.find_image.outputs.tag }}
           delete-branch: true
-          title: "🚀 Update K8s Image: ${{ inputs.docker_image }}:${{ steps.image_tag.outputs.tag }}"
+          title: "🚀 Update K8s Image: ${{ inputs.docker_image }}:${{ steps.find_image.outputs.tag }}"
           body: |
             ## 🐳 Kubernetes Image Update
             
             **Environment:** `${{ inputs.environment }}`
-            **New Image:** `${{ steps.image_tag.outputs.full_image }}`
+            **New Image:** `${{ steps.find_image.outputs.full_image }}`
+            **Image Date:** `${{ steps.find_image.outputs.updated_date }}`
             
             ### 📊 Changes Summary
             - **Files Updated:** ${{ steps.update.outputs.files_updated }}
             - **Total Replacements:** ${{ steps.update.outputs.total_replacements }}
-            - **Commit SHA:** `${{ inputs.commit_sha }}`
             
             ### 🔗 Related Links
             - [Docker Hub Image](https://hub.docker.com/r/${{ inputs.dockerhub_username }}/${{ inputs.docker_image }}/tags)
@@ -306,7 +377,9 @@ jobs:
           echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
           echo "📊 REPORTE FINAL DE ACTUALIZACIÓN"
           echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-          echo "🐳 Imagen: ${{ steps.image_tag.outputs.full_image }}"
+          echo "🐳 Imagen: ${{ steps.find_image.outputs.full_image }}"
+          echo "🏷️  Tag: ${{ steps.find_image.outputs.tag }}"
+          echo "📅 Fecha imagen: ${{ steps.find_image.outputs.updated_date }}"
           echo "🌍 Entorno: ${{ inputs.environment }}"
           echo "📁 Archivos actualizados: ${{ steps.update.outputs.files_updated }}"
           echo "🔄 Reemplazos totales: ${{ steps.update.outputs.total_replacements }}"
