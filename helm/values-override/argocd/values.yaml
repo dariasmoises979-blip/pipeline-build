@@ -1,0 +1,41 @@
+# values.yaml para desplegar Argo CD en GKE con Ingress público HTTPS
+
+global:
+  image:
+    tag: v2.13.0   # ajusta la versión si lo deseas
+
+server:
+  # Habilitar el servicio de Argo CD como LoadBalancer (necesario para GCE Ingress)
+  service:
+    type: NodePort
+    servicePortHttp: 80
+    servicePortHttps: 443
+
+  ingress:
+    enabled: true
+    ingressClassName: "gce"   # o "gce" para Ingress externo
+    hostname: "argocd.midominio.com"
+    path: /
+    pathType: Prefix
+    tls: true
+    annotations:
+      kubernetes.io/ingress.class: "gce"
+      kubernetes.io/ingress.global-static-ip-name: "argocd-static-ip"  # opcional, si ya reservaste una IP en GCP
+      networking.gke.io/managed-certificates: "argocd-cert"
+      kubernetes.io/ingress.allow-http: "false"
+
+configs:
+  params:
+    # Permitir login local con admin (puedes deshabilitarlo si usas OIDC)
+    server.insecure: "false"
+    server.rootpath: /
+
+# Recursos opcionales: certificados y dominio gestionado
+extraObjects:
+  - apiVersion: networking.gke.io/v1
+    kind: ManagedCertificate
+    metadata:
+      name: argocd-cert
+    spec:
+      domains:
+        - argocd.midominio.com
