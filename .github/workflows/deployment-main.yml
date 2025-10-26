@@ -1,0 +1,125 @@
+name: Deployment Main Workflow
+
+on:
+  workflow_call:
+    inputs:
+      environment:
+        required: true
+        type: string
+        description: 'Target environment (dev, staging, pre, prod)'
+      image_tag:
+        required: true
+        type: string
+        description: 'Docker image tag to deploy'
+      requires_approval:
+        required: false
+        type: boolean
+        default: false
+        description: 'Whether this deployment requires manual approval'
+
+jobs:
+  # Mostrar información de la imagen que se va a desplegar
+  show-deployment-info:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Display Deployment Information
+        run: |
+          echo "🚀 Deployment Information"
+          echo "========================"
+          echo "Environment: ${{ inputs.environment }}"
+          echo "Image Tag: ${{ inputs.image_tag }}"
+          echo "Requires Approval: ${{ inputs.requires_approval }}"
+          echo "Triggered by: ${{ github.event_name }}"
+          echo "Repository: ${{ github.repository }}"
+          echo "Branch: ${{ github.ref_name }}"
+          echo "Commit SHA: ${{ github.sha }}"
+          echo "========================"
+
+      - name: Show Docker Image Details
+        run: |
+          echo "📦 Docker Image Details"
+          echo "========================"
+          echo "Registry: ghcr.io (or your registry)"
+          echo "Image: ${{ github.repository }}:${{ inputs.image_tag }}"
+          echo "Full Image Path: ghcr.io/${{ github.repository }}:${{ inputs.image_tag }}"
+          echo "========================"
+
+  # Job de despliegue para dev y staging (automático)
+  deploy-auto:
+    if: inputs.environment == 'dev' || inputs.environment == 'staging'
+    needs: show-deployment-info
+    runs-on: ubuntu-latest
+    environment: ${{ inputs.environment }}
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Deploy to ${{ inputs.environment }}
+        run: |
+          echo "🔄 Deploying to ${{ inputs.environment }}..."
+          echo "Using image: ${{ inputs.image_tag }}"
+          # Aquí van tus comandos de despliegue
+          # Por ejemplo:
+          # kubectl set image deployment/my-app app=ghcr.io/${{ github.repository }}:${{ inputs.image_tag }}
+          # o tus scripts de despliegue específicos
+          
+      - name: Verify Deployment
+        run: |
+          echo "✅ Deployment to ${{ inputs.environment }} completed"
+          echo "Image deployed: ${{ inputs.image_tag }}"
+
+  # Job de despliegue para pre y prod (manual con aprobación)
+  deploy-manual:
+    if: inputs.environment == 'pre' || inputs.environment == 'prod'
+    needs: show-deployment-info
+    runs-on: ubuntu-latest
+    environment: 
+      name: ${{ inputs.environment }}
+      url: ${{ steps.deploy.outputs.url }}
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Manual Approval Required
+        run: |
+          echo "⚠️  MANUAL DEPLOYMENT to ${{ inputs.environment }}"
+          echo "This deployment requires approval through GitHub Environments"
+          echo "Waiting for approval..."
+
+      - name: Deploy to ${{ inputs.environment }}
+        id: deploy
+        run: |
+          echo "🔄 Deploying to ${{ inputs.environment }}..."
+          echo "Using image: ${{ inputs.image_tag }}"
+          # Aquí van tus comandos de despliegue
+          # Por ejemplo:
+          # kubectl set image deployment/my-app app=ghcr.io/${{ github.repository }}:${{ inputs.image_tag }}
+          
+          # Configurar URL del entorno
+          if [ "${{ inputs.environment }}" == "prod" ]; then
+            echo "url=https://prod.example.com" >> $GITHUB_OUTPUT
+          else
+            echo "url=https://pre.example.com" >> $GITHUB_OUTPUT
+          fi
+          
+      - name: Verify Deployment
+        run: |
+          echo "✅ Deployment to ${{ inputs.environment }} completed successfully"
+          echo "Image deployed: ${{ inputs.image_tag }}"
+          echo "Environment URL: ${{ steps.deploy.outputs.url }}"
+
+  # Job de notificación post-despliegue
+  notify:
+    needs: [deploy-auto, deploy-manual]
+    if: always()
+    runs-on: ubuntu-latest
+    steps:
+      - name: Deployment Summary
+        run: |
+          echo "📊 Deployment Summary"
+          echo "========================"
+          echo "Environment: ${{ inputs.environment }}"
+          echo "Image Tag: ${{ inputs.image_tag }}"
+          echo "Status: ${{ job.status }}"
+          echo "========================"
+          # Aquí puedes agregar notificaciones a Slack, Teams, etc.
