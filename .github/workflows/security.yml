@@ -47,8 +47,6 @@ on:
         description: "Token de DockerHub (opcional, para imágenes privadas)"
       SONAR_TOKEN:
         required: false
-      #GITHUB_TOKEN:
-      #  required: false
 
 permissions:
   actions: read
@@ -100,13 +98,12 @@ jobs:
       image_digest: ${{ steps.inspect.outputs.digest }}
 
     steps:
-      - name: 🔐 Login en DockerHub (si hay token)
+      - name: 🔐 Login en DockerHub
         uses: docker/login-action@v3
         with:
-            username: ${{ inputs.dockerhub_username }}
-            password: ${{ secrets.DOCKERHUB_TOKEN }}
-            logout: true
-         
+          username: ${{ inputs.dockerhub_username }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+          logout: true
 
       - name: 📥 Pull de imagen desde DockerHub
         id: pull
@@ -147,10 +144,18 @@ jobs:
       - name: 📦 Checkout para contexto
         uses: actions/checkout@v4
 
+      - name: 🔍 Debug - Verificar inputs
+        run: |
+          echo "### 🔍 Debug - Parámetros Recibidos" >> $GITHUB_STEP_SUMMARY
+          echo "- **image_name**: ${{ inputs.image_name }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **image_tag**: ${{ inputs.image_tag }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **dockerhub_username**: ${{ inputs.dockerhub_username }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **image_full**: ${{ needs.pull-image.outputs.image_full }}" >> $GITHUB_STEP_SUMMARY
+
       - name: 🔐 Login en DockerHub
         uses: docker/login-action@v3
         with:
-          username: ${{ github.actor }}
+          username: ${{ inputs.dockerhub_username }}
           password: ${{ secrets.DOCKERHUB_TOKEN }}
 
       - name: 📥 Pull de imagen
@@ -263,6 +268,8 @@ jobs:
 
       - name: 📤 Subir reportes como artefactos
         uses: actions/upload-artifact@v4
+        if: always()
+        continue-on-error: true
         with:
           name: security-reports
           path: |
@@ -270,6 +277,7 @@ jobs:
             trivy-report.json
             dockle-report.txt
           retention-days: 30
+          if-no-files-found: warn
 
   # ═══════════════════════════════════════════════════════════
   # ⚙️ JOB 4: ANÁLISIS DE RENDIMIENTO Y OPTIMIZACIÓN
@@ -283,11 +291,9 @@ jobs:
       - name: 🔐 Login en DockerHub
         uses: docker/login-action@v3
         with:
-            username: ${{ inputs.dockerhub_username }}
-            password: ${{ secrets.DOCKERHUB_TOKEN }}
-            logout: true
-
-          
+          username: ${{ inputs.dockerhub_username }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+          logout: true
 
       - name: 📥 Pull de imagen
         run: |
@@ -370,12 +376,15 @@ jobs:
 
       - name: 📤 Subir reportes de rendimiento
         uses: actions/upload-artifact@v4
+        if: always()
+        continue-on-error: true
         with:
           name: performance-reports
           path: |
             dive-report.txt
             structure-test.txt
           retention-days: 30
+          if-no-files-found: warn
 
   # ═══════════════════════════════════════════════════════════
   # 🚀 JOB 5: PRUEBAS DE RENDIMIENTO EN RUNTIME
@@ -389,10 +398,9 @@ jobs:
       - name: 🔐 Login en DockerHub
         uses: docker/login-action@v3
         with:
-            username: ${{ inputs.dockerhub_username }}
-            password: ${{ secrets.DOCKERHUB_TOKEN }}
-            logout: true
-  
+          username: ${{ inputs.dockerhub_username }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+          logout: true
 
       - name: 📥 Pull de imagen
         run: |
@@ -512,18 +520,22 @@ jobs:
 
       - name: 📥 Descargar artefactos de seguridad
         uses: actions/download-artifact@v4
+        continue-on-error: true
         with:
           name: security-reports
           path: ./reports/security
 
       - name: 📥 Descargar artefactos de rendimiento
         uses: actions/download-artifact@v4
+        continue-on-error: true
         with:
           name: performance-reports
           path: ./reports/performance
 
       - name: 📊 Generar reporte consolidado
         run: |
+          mkdir -p ./reports/security ./reports/performance
+          
           cat > SECURITY_REPORT.md << 'EOF'
           # 🔐 Reporte de Seguridad y Rendimiento
           
@@ -545,7 +557,6 @@ jobs:
           ### 📊 Resultados de Trivy
           EOF
           
-          # Añadir resultados de vulnerabilidades si existen
           if [ -f ./reports/security/trivy-report.json ]; then
             CRITICAL=$(jq '[.Results[]?.Vulnerabilities[]? | select(.Severity=="CRITICAL")] | length' ./reports/security/trivy-report.json)
             HIGH=$(jq '[.Results[]?.Vulnerabilities[]? | select(.Severity=="HIGH")] | length' ./reports/security/trivy-report.json)
@@ -558,6 +569,18 @@ jobs:
           | 🔴 CRITICAL | $CRITICAL | $([ $CRITICAL -eq 0 ] && echo "✅ OK" || echo "❌ ACCIÓN REQUERIDA") |
           | 🟠 HIGH | $HIGH | $([ $HIGH -eq 0 ] && echo "✅ OK" || echo "⚠️ REVISAR") |
           | 🟡 MEDIUM | $MEDIUM | $([ $MEDIUM -le 5 ] && echo "✅ Aceptable" || echo "⚠️ Mejorable") |
+          EOF
+          else
+            cat >> SECURITY_REPORT.md << 'EOF'
+          
+          ⚠️ **Reporte de Trivy no disponible**
+          
+          El escaneo de seguridad no se completó correctamente. Posibles causas:
+          - Error en el pull de la imagen
+          - Fallo en la autenticación con DockerHub
+          - Timeout del escaneo
+          
+          **Acción requerida**: Revisar los logs del job `security-scan` para más detalles.
           EOF
           fi
           
@@ -629,10 +652,12 @@ jobs:
 
       - name: 📤 Subir reporte final
         uses: actions/upload-artifact@v4
+        if: always()
         with:
           name: final-security-report
           path: SECURITY_REPORT.md
           retention-days: 90
+          if-no-files-found: error
 
       - name: 💬 Comentar en Pull Request
         if: github.event_name == 'pull_request'
@@ -642,7 +667,6 @@ jobs:
             const fs = require('fs');
             const report = fs.readFileSync('SECURITY_REPORT.md', 'utf8');
             
-            // Crear comentario colapsable para no saturar el PR
             const collapsedReport = `
             ## 🔐 Reporte de Seguridad y Rendimiento
             
@@ -674,12 +698,54 @@ jobs:
           script: |
             const fs = require('fs');
             
-            // Leer reporte de Trivy
             let hasCritical = false;
             let criticalCount = 0;
             let highCount = 0;
             
             try {
+              if (!fs.existsSync('./reports/security/trivy-report.json')) {
+                console.log('⚠️ Reporte de Trivy no encontrado - posiblemente el escaneo falló');
+                
+                const issueTitle = `⚠️ Fallo en el escaneo de seguridad para ${{ needs.pull-image.outputs.image_full }}`;
+                const issueBody = `
+                ## ⚠️ Error en el Pipeline de Seguridad
+                
+                El escaneo de seguridad no se completó correctamente para:
+                
+                **Imagen**: \`${{ needs.pull-image.outputs.image_full }}\`
+                **Fecha**: ${new Date().toISOString().split('T')[0]}
+                **Workflow**: [#${{ github.run_number }}](https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }})
+                
+                ### 🔍 Posibles Causas
+                
+                1. Error en el login de DockerHub
+                2. La imagen no existe en DockerHub
+                3. Timeout del escaneo
+                4. Problemas de red
+                
+                ### ✅ Acciones Requeridas
+                
+                1. Revisar los logs del workflow
+                2. Verificar credenciales de DockerHub
+                3. Confirmar que la imagen existe: \`docker pull ${{ needs.pull-image.outputs.image_full }}\`
+                4. Re-ejecutar el workflow manualmente
+                
+                ---
+                
+                Este issue se cerrará automáticamente cuando el escaneo se complete exitosamente.
+                `;
+                
+                await github.rest.issues.create({
+                  owner: context.repo.owner,
+                  repo: context.repo.repo,
+                  title: issueTitle,
+                  body: issueBody,
+                  labels: ['security', 'pipeline-failure', 'automated']
+                });
+                
+                return;
+              }
+              
               const trivyReport = JSON.parse(fs.readFileSync('./reports/security/trivy-report.json', 'utf8'));
               
               for (const result of trivyReport.Results || []) {
@@ -697,7 +763,6 @@ jobs:
               return;
             }
             
-            // Si hay vulnerabilidades críticas, crear issue
             if (hasCritical) {
               const issueTitle = `🚨 Vulnerabilidades críticas detectadas en ${{ needs.pull-image.outputs.image_full }}`;
               const issueBody = `
@@ -729,7 +794,6 @@ jobs:
               ⚠️ **Este issue se cierra automáticamente cuando se resuelvan las vulnerabilidades**
               `;
               
-              // Buscar issues abiertos similares
               const existingIssues = await github.rest.issues.listForRepo({
                 owner: context.repo.owner,
                 repo: context.repo.repo,
@@ -743,7 +807,6 @@ jobs:
               );
               
               if (!similarIssue) {
-                // Crear nuevo issue
                 await github.rest.issues.create({
                   owner: context.repo.owner,
                   repo: context.repo.repo,
@@ -754,7 +817,6 @@ jobs:
                 
                 console.log('✅ Issue de seguridad creado');
               } else {
-                // Actualizar issue existente
                 await github.rest.issues.createComment({
                   owner: context.repo.owner,
                   repo: context.repo.repo,
