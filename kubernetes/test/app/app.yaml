@@ -64,4 +64,5 @@ spec:
   - protocol: TCP
     port: 80          # Puerto externo del servicio
     targetPort: 5000  # Puerto del contenedor
-  type: LoadBalancer  # O ClusterIP según necesites
+  type: NodePort 
+  #LoadBalancer  # O ClusterIP según necesites
