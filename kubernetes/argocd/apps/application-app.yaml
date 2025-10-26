@@ -8,7 +8,7 @@ spec:
   source:
     repoURL: 'https://github.com/dariasmoises979-blip/pipeline-build.git' # Cambia por tu repo
     targetRevision: HEAD
-    path: kubernetes/app-01
+    path: kubernetes/test/app-01
   destination:
     server: 'https://kubernetes.default.svc'
     namespace: default

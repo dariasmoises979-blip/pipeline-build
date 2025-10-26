@@ -8,7 +8,7 @@ spec:
   source:
     repoURL: 'https://github.com/dariasmoises979-blip/pipeline-build.git' # Cambia por tu repo
     targetRevision: HEAD
-    path: kubernetes/argocd/apps
+    path: kubernetes/qa/app
   destination:
     server: 'https://kubernetes.default.svc'
     namespace: qa
