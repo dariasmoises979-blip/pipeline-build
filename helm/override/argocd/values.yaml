@@ -7,7 +7,7 @@ global:
 server:
   # Habilitar el servicio de Argo CD como LoadBalancer (necesario para GCE Ingress)
   service:
-    type: NodePort #LoadBalancer
+    type: LoadBalancer
     servicePortHttp: 80
     servicePortHttps: 443
     
