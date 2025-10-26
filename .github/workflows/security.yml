@@ -17,6 +17,10 @@ on:
         description: "Tag de la imagen a analizar"
         required: true
         type: string
+      dockerhub_username:
+        description: "Usuario de DockerHub"
+        required: true
+        type: string
       enable_code_analysis:
         description: "Habilitar análisis de código fuente con CodeQL"
         required: false

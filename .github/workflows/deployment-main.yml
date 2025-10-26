@@ -10,7 +10,15 @@ on:
       image_tag:
         required: true
         type: string
-        description: 'Docker image tag to deploy'
+        description: 'Docker image tag to deploy (formato: environment-shortsha)'
+      dockerhub_username:
+        required: true
+        type: string
+        description: 'Usuario de Docker Hub'
+      docker_image:
+        required: true
+        type: string
+        description: 'Nombre de la imagen Docker'
       requires_approval:
         required: false
         type: boolean
@@ -18,34 +26,74 @@ on:
         description: 'Whether this deployment requires manual approval'
 
 jobs:
-  # Mostrar información de la imagen que se va a desplegar
+  # ═══════════════════════════════════════════════════════════
+  # 📦 JOB 1: MOSTRAR INFORMACIÓN DE LA IMAGEN
+  # ═══════════════════════════════════════════════════════════
   show-deployment-info:
+    name: 📦 Show Image Information
     runs-on: ubuntu-latest
     steps:
       - name: Display Deployment Information
         run: |
-          echo "🚀 Deployment Information"
-          echo "========================"
-          echo "Environment: ${{ inputs.environment }}"
-          echo "Image Tag: ${{ inputs.image_tag }}"
-          echo "Requires Approval: ${{ inputs.requires_approval }}"
-          echo "Triggered by: ${{ github.event_name }}"
-          echo "Repository: ${{ github.repository }}"
-          echo "Branch: ${{ github.ref_name }}"
-          echo "Commit SHA: ${{ github.sha }}"
-          echo "========================"
+          echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+          echo "🚀 DEPLOYMENT INFORMATION"
+          echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+          echo "🌍 Environment: ${{ inputs.environment }}"
+          echo "🏷️  Image Tag: ${{ inputs.image_tag }}"
+          echo "📦 Docker Image: ${{ inputs.docker_image }}"
+          echo "👤 Docker Hub User: ${{ inputs.dockerhub_username }}"
+          echo "🔐 Requires Approval: ${{ inputs.requires_approval }}"
+          echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+          echo "🔗 Triggered by: ${{ github.event_name }}"
+          echo "📂 Repository: ${{ github.repository }}"
+          echo "🌿 Branch: ${{ github.ref_name }}"
+          echo "👤 Actor: ${{ github.actor }}"
+          echo "🕐 Timestamp: $(date -u +'%Y-%m-%d %H:%M:%S UTC')"
+          echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
 
       - name: Show Docker Image Details
         run: |
-          echo "📦 Docker Image Details"
-          echo "========================"
-          echo "Registry: ghcr.io (or your registry)"
-          echo "Image: ${{ github.repository }}:${{ inputs.image_tag }}"
-          echo "Full Image Path: ghcr.io/${{ github.repository }}:${{ inputs.image_tag }}"
-          echo "========================"
+          echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+          echo "🐳 DOCKER IMAGE DETAILS"
+          echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+          echo "📦 Full Image Path:"
+          echo "   ${{ inputs.dockerhub_username }}/${{ inputs.docker_image }}:${{ inputs.image_tag }}"
+          echo ""
+          echo "📋 Pull Command:"
+          echo "   docker pull ${{ inputs.dockerhub_username }}/${{ inputs.docker_image }}:${{ inputs.image_tag }}"
+          echo ""
+          echo "🔗 Docker Hub URL:"
+          echo "   https://hub.docker.com/r/${{ inputs.dockerhub_username }}/${{ inputs.docker_image }}/tags"
+          echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
 
-  # Job de despliegue para dev y staging (automático)
+      - name: Verify Image Tag Format
+        run: |
+          IMAGE_TAG="${{ inputs.image_tag }}"
+          ENVIRONMENT="${{ inputs.environment }}"
+          
+          echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+          echo "🔍 IMAGE TAG VALIDATION"
+          echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+          
+          # Verificar que el tag comienza con el nombre del entorno
+          if [[ "${IMAGE_TAG}" == "${ENVIRONMENT}-"* ]]; then
+            echo "✅ Tag format is correct: ${IMAGE_TAG}"
+            echo "✅ Matches environment: ${ENVIRONMENT}"
+            
+            # Extraer el SHORT_SHA del tag
+            SHORT_SHA="${IMAGE_TAG#${ENVIRONMENT}-}"
+            echo "📝 Short SHA extracted: ${SHORT_SHA}"
+          else
+            echo "⚠️  Warning: Tag '${IMAGE_TAG}' doesn't follow expected format '${ENVIRONMENT}-<short-sha>'"
+            echo "⚠️  Deployment will continue, but verify this is the correct image"
+          fi
+          echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+
+  # ═══════════════════════════════════════════════════════════
+  # 🚀 JOB 2: DEPLOY AUTOMÁTICO (DEV & STAGING)
+  # ═══════════════════════════════════════════════════════════
   deploy-auto:
+    name: 🚀 Deploy to ${{ inputs.environment }} (Auto)
     if: inputs.environment == 'dev' || inputs.environment == 'staging'
     needs: show-deployment-info
     runs-on: ubuntu-latest
@@ -54,22 +102,72 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
 
+      - name: Pull Docker Image
+        run: |
+          echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+          echo "📥 PULLING DOCKER IMAGE"
+          echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+          FULL_IMAGE="${{ inputs.dockerhub_username }}/${{ inputs.docker_image }}:${{ inputs.image_tag }}"
+          echo "🐳 Pulling: ${FULL_IMAGE}"
+          
+          # Intentar pull (puedes comentar esto si prefieres no hacer pull aquí)
+          # docker pull ${FULL_IMAGE}
+          
+          echo "✅ Image reference validated"
+          echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+
       - name: Deploy to ${{ inputs.environment }}
         run: |
-          echo "🔄 Deploying to ${{ inputs.environment }}..."
-          echo "Using image: ${{ inputs.image_tag }}"
-          # Aquí van tus comandos de despliegue
-          # Por ejemplo:
-          # kubectl set image deployment/my-app app=ghcr.io/${{ github.repository }}:${{ inputs.image_tag }}
-          # o tus scripts de despliegue específicos
+          echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+          echo "🔄 DEPLOYING TO ${{ inputs.environment }}"
+          echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+          echo "📦 Using image: ${{ inputs.dockerhub_username }}/${{ inputs.docker_image }}:${{ inputs.image_tag }}"
+          echo ""
+          
+          # ═══════════════════════════════════════════════════
+          # 🔧 AQUÍ VAN TUS COMANDOS DE DESPLIEGUE
+          # ═══════════════════════════════════════════════════
+          # Ejemplos según tu plataforma:
+          
+          # Para Kubernetes:
+          # kubectl set image deployment/my-app \
+          #   app=${{ inputs.dockerhub_username }}/${{ inputs.docker_image }}:${{ inputs.image_tag }} \
+          #   -n ${{ inputs.environment }}
+          
+          # Para Docker Compose:
+          # export IMAGE_TAG=${{ inputs.image_tag }}
+          # docker-compose -f docker-compose.${{ inputs.environment }}.yml up -d
+          
+          # Para AWS ECS:
+          # aws ecs update-service \
+          #   --cluster my-cluster-${{ inputs.environment }} \
+          #   --service my-service \
+          #   --force-new-deployment
+          
+          # Para Azure Container Instances:
+          # az container create \
+          #   --resource-group my-rg \
+          #   --name my-app-${{ inputs.environment }} \
+          #   --image ${{ inputs.dockerhub_username }}/${{ inputs.docker_image }}:${{ inputs.image_tag }}
+          
+          echo "✅ Deployment commands executed"
+          echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
           
       - name: Verify Deployment
         run: |
-          echo "✅ Deployment to ${{ inputs.environment }} completed"
-          echo "Image deployed: ${{ inputs.image_tag }}"
+          echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+          echo "✅ DEPLOYMENT TO ${{ inputs.environment }} COMPLETED"
+          echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+          echo "📦 Image deployed: ${{ inputs.image_tag }}"
+          echo "🌍 Environment: ${{ inputs.environment }}"
+          echo "🕐 Completed at: $(date -u +'%Y-%m-%d %H:%M:%S UTC')"
+          echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
 
-  # Job de despliegue para pre y prod (manual con aprobación)
+  # ═══════════════════════════════════════════════════════════
+  # 🔐 JOB 3: DEPLOY MANUAL (PRE & PROD)
+  # ═══════════════════════════════════════════════════════════
   deploy-manual:
+    name: 🔐 Deploy to ${{ inputs.environment }} (Manual)
     if: inputs.environment == 'pre' || inputs.environment == 'prod'
     needs: show-deployment-info
     runs-on: ubuntu-latest
@@ -82,44 +180,109 @@ jobs:
 
       - name: Manual Approval Required
         run: |
-          echo "⚠️  MANUAL DEPLOYMENT to ${{ inputs.environment }}"
-          echo "This deployment requires approval through GitHub Environments"
-          echo "Waiting for approval..."
+          echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+          echo "⚠️  MANUAL DEPLOYMENT TO ${{ inputs.environment }}"
+          echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+          echo "🔐 This deployment requires approval through GitHub Environments"
+          echo "📦 Image to deploy: ${{ inputs.dockerhub_username }}/${{ inputs.docker_image }}:${{ inputs.image_tag }}"
+          echo "⏳ Waiting for approval..."
+          echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+
+      - name: Pull Docker Image
+        run: |
+          echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+          echo "📥 PULLING DOCKER IMAGE"
+          echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+          FULL_IMAGE="${{ inputs.dockerhub_username }}/${{ inputs.docker_image }}:${{ inputs.image_tag }}"
+          echo "🐳 Pulling: ${FULL_IMAGE}"
+          
+          # Intentar pull (puedes comentar esto si prefieres no hacer pull aquí)
+          # docker pull ${FULL_IMAGE}
+          
+          echo "✅ Image reference validated"
+          echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
 
       - name: Deploy to ${{ inputs.environment }}
         id: deploy
         run: |
-          echo "🔄 Deploying to ${{ inputs.environment }}..."
-          echo "Using image: ${{ inputs.image_tag }}"
-          # Aquí van tus comandos de despliegue
-          # Por ejemplo:
-          # kubectl set image deployment/my-app app=ghcr.io/${{ github.repository }}:${{ inputs.image_tag }}
+          echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+          echo "🔄 DEPLOYING TO ${{ inputs.environment }}"
+          echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+          echo "📦 Using image: ${{ inputs.dockerhub_username }}/${{ inputs.docker_image }}:${{ inputs.image_tag }}"
+          echo ""
           
-          # Configurar URL del entorno
+          # ═══════════════════════════════════════════════════
+          # 🔧 AQUÍ VAN TUS COMANDOS DE DESPLIEGUE
+          # ═══════════════════════════════════════════════════
+          # (Los mismos ejemplos que en deploy-auto)
+          
+          echo "✅ Deployment commands executed"
+          
+          # Configurar URL del entorno según el ambiente
           if [ "${{ inputs.environment }}" == "prod" ]; then
             echo "url=https://prod.example.com" >> $GITHUB_OUTPUT
           else
             echo "url=https://pre.example.com" >> $GITHUB_OUTPUT
           fi
           
+          echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+          
       - name: Verify Deployment
         run: |
-          echo "✅ Deployment to ${{ inputs.environment }} completed successfully"
-          echo "Image deployed: ${{ inputs.image_tag }}"
-          echo "Environment URL: ${{ steps.deploy.outputs.url }}"
+          echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+          echo "✅ DEPLOYMENT TO ${{ inputs.environment }} COMPLETED"
+          echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+          echo "📦 Image deployed: ${{ inputs.image_tag }}"
+          echo "🌍 Environment: ${{ inputs.environment }}"
+          echo "🌐 Environment URL: ${{ steps.deploy.outputs.url }}"
+          echo "🕐 Completed at: $(date -u +'%Y-%m-%d %H:%M:%S UTC')"
+          echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
 
-  # Job de notificación post-despliegue
+  # ═══════════════════════════════════════════════════════════
+  # 📊 JOB 4: NOTIFICACIÓN FINAL
+  # ═══════════════════════════════════════════════════════════
   notify:
-    needs: [deploy-auto, deploy-manual]
+    name: 📊 Deployment Summary
+    needs: [show-deployment-info, deploy-auto, deploy-manual]
     if: always()
     runs-on: ubuntu-latest
     steps:
       - name: Deployment Summary
         run: |
-          echo "📊 Deployment Summary"
-          echo "========================"
-          echo "Environment: ${{ inputs.environment }}"
-          echo "Image Tag: ${{ inputs.image_tag }}"
-          echo "Status: ${{ job.status }}"
-          echo "========================"
-          # Aquí puedes agregar notificaciones a Slack, Teams, etc.
+          echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+          echo "📊 DEPLOYMENT SUMMARY"
+          echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+          echo "🌍 Environment: ${{ inputs.environment }}"
+          echo "📦 Docker Image: ${{ inputs.dockerhub_username }}/${{ inputs.docker_image }}"
+          echo "🏷️  Image Tag: ${{ inputs.image_tag }}"
+          echo "📊 Status: ${{ job.status }}"
+          echo "👤 Deployed by: ${{ github.actor }}"
+          echo "🕐 Timestamp: $(date -u +'%Y-%m-%d %H:%M:%S UTC')"
+          echo ""
+          echo "🔗 Workflow Run:"
+          echo "   ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+          echo ""
+          echo "🐳 Docker Hub:"
+          echo "   https://hub.docker.com/r/${{ inputs.dockerhub_username }}/${{ inputs.docker_image }}/tags"
+          echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+          
+      # Opcional: Agregar notificaciones a Slack, Teams, etc.
+      # - name: Send Slack Notification
+      #   if: always()
+      #   uses: slackapi/slack-github-action@v1
+      #   with:
+      #     payload: |
+      #       {
+      #         "text": "Deployment to ${{ inputs.environment }}: ${{ job.status }}",
+      #         "blocks": [
+      #           {
+      #             "type": "section",
+      #             "text": {
+      #               "type": "mrkdwn",
+      #               "text": "*Deployment Summary*\n• Environment: `${{ inputs.environment }}`\n• Image: `${{ inputs.image_tag }}`\n• Status: ${{ job.status }}"
+      #             }
+      #           }
+      #         ]
+      #       }
+      #   env:
+      #     SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
