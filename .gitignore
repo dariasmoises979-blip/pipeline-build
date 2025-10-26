@@ -1,3 +1,28 @@
 # Ignorar todos los proveedores de Terraform descargados
 terraform/argocd/.terraform/providers/
 terraform/argocd/.terraform/plugin-cache/
+.terraform/
+
+# Terraform directories and files
+.terraform/
+*.tfstate
+*.tfstate.backup
+.terraform.lock.hcl
+*.tfplan
+
+# Terraform plugin caches
+.terraform/providers/
+.terraform/plugin-cache/
+
+# IDE / editor files
+*.swp
+*.swo
+*.idea/
+.vscode/
+
+# OS generated files
+.DS_Store
+Thumbs.db
+
+# Optional: ignore logs
+*.log
