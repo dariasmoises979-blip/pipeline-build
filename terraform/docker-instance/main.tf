@@ -78,43 +78,74 @@ resource "google_compute_instance_template" "app_template" {
   }
 
   metadata_startup_script = <<-EOT
-    #!/bin/bash
-    set -e
+#!/bin/bash
+set -e
 
-    SECRET_NAME="github"
-    PROJECT_ID="${var.project}"
-    GIT_REPO_URL="git@github.com:dariasmoises979-blip/app.git"
-    APP_DIR="/opt/app_repo"
-    USER_HOME="/home/appuser"
+SECRET_NAME="github"
+PROJECT_ID="${var.project}"
+GIT_REPO_URL="git@github.com:dariasmoises979-blip/app.git"
+APP_DIR="/opt/app_repo"
+USER_HOME="/home/appuser"
 
-    # Crear usuario appuser
-    id -u appuser &>/dev/null || useradd -m -s /bin/bash appuser
+# ----------------------------
+# Instalar dependencias básicas
+# ----------------------------
+apt-get update -y
+apt-get install -y git curl ca-certificates apt-transport-https gnupg make sudo lsb-release
 
-    # Crear .ssh y descargar la clave privada desde Secret Manager
-    mkdir -p $${USER_HOME}/.ssh
-    gcloud secrets versions access latest --secret=$${SECRET_NAME} --project=$${PROJECT_ID} > $${USER_HOME}/.ssh/id_rsa
-    chmod 600 $${USER_HOME}/.ssh/id_rsa
-    chown -R appuser:appuser $${USER_HOME}/.ssh
+# ----------------------------
+# Instalar Docker
+# ----------------------------
+if ! command -v docker >/dev/null 2>&1; then
+  mkdir -p /etc/apt/keyrings
+  curl -fsSL https://download.docker.com/linux/debian/gpg | gpg --dearmor -o /etc/apt/keyrings/docker.gpg
+  echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.gpg] https://download.docker.com/linux/debian $(lsb_release -cs) stable" > /etc/apt/sources.list.d/docker.list
+  apt-get update -y
+  apt-get install -y docker-ce docker-ce-cli containerd.io
+fi
 
-    # Evitar prompt host key
-    ssh-keyscan github.com >> $${USER_HOME}/.ssh/known_hosts
-    chown appuser:appuser $${USER_HOME}/.ssh/known_hosts
+# ----------------------------
+# Instalar Docker Compose (v2 plugin)
+# ----------------------------
+if ! docker compose version >/dev/null 2>&1; then
+  apt-get install -y docker-compose-plugin
+fi
 
-    # Clonar repo
-    rm -rf $${APP_DIR}
-    sudo -u appuser git clone $${GIT_REPO_URL} $${APP_DIR}
-    chown -R appuser:appuser $${APP_DIR}
+# ----------------------------
+# Crear usuario appuser si no existe
+# ----------------------------
+id -u appuser &>/dev/null || useradd -m -s /bin/bash appuser
 
-    # Lanzar make up si existe Makefile
-    if [ -f "$${APP_DIR}/Makefile" ]; then
-      cd $${APP_DIR}
-      sudo -u appuser bash -lc "nohup make build >/var/log/make_up.log 2>&1 &"
-      sudo -u appuser bash -lc "nohup make up >/var/log/make_up.log 2>&1 &"
-    fi
+# ----------------------------
+# Configurar SSH para GitHub
+# ----------------------------
+mkdir -p $${USER_HOME}/.ssh
+gcloud secrets versions access latest --secret=$${SECRET_NAME} --project=$${PROJECT_ID} > $${USER_HOME}/.ssh/id_rsa
+chmod 600 $${USER_HOME}/.ssh/id_rsa
+chown -R appuser:appuser $${USER_HOME}/.ssh
 
-    echo "Startup script completed" > /var/log/startup-script.log
-  EOT
-}
+ssh-keyscan github.com >> $${USER_HOME}/.ssh/known_hosts
+chown appuser:appuser $${USER_HOME}/.ssh/known_hosts
+
+# ----------------------------
+# Clonar repositorio
+# ----------------------------
+rm -rf $${APP_DIR}
+sudo -u appuser git clone $${GIT_REPO_URL} $${APP_DIR}
+chown -R appuser:appuser $${APP_DIR}
+
+# ----------------------------
+# Ejecutar Makefile si existe
+# ----------------------------
+if [ -f "$${APP_DIR}/Makefile" ]; then
+  cd $${APP_DIR}
+  sudo -u appuser bash -lc "nohup make build >/var/log/make_up.log 2>&1 &"
+  sudo -u appuser bash -lc "nohup make up >/var/log/make_up.log 2>&1 &"
+fi
+
+echo "Startup script completed" > /var/log/startup-script.log
+EOT
+
 
 #######################################
 # INSTANCE GROUP
