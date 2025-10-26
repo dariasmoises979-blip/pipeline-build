@@ -1,0 +1,3 @@
+# Ignorar todos los proveedores de Terraform descargados
+terraform/argocd/.terraform/providers/
+terraform/argocd/.terraform/plugin-cache/
