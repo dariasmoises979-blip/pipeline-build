@@ -2,7 +2,7 @@ apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: qa-info-deployment
-  namespace: default
+  namespace: qa
   labels:
     app: qa-info
 spec:

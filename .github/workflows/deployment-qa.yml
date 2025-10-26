@@ -1,118 +1,374 @@
-name: Deploy a GKE con Aprobación Manual
+# .github/workflows/reusable-update-k8s.yml
+name: Reusable - Actualizar Manifiestos K8s
 
 on:
-  workflow_dispatch:  # Permite ejecutar manualmente el workflow
+  workflow_call:
     inputs:
-      environment:
-        description: 'Entorno de despliegue'
+      app_name:
         required: true
-        type: choice
-        options:
-          - development
-          - staging
-          - production
-
-env:
-  PROJECT_ID: ${{ secrets.GCP_PROJECT_ID }}
-  GKE_CLUSTER: ${{ secrets.GKE_CLUSTER_NAME }}
-  GKE_ZONE: ${{ secrets.GKE_ZONE }}
-  IMAGE_NAME: mi-aplicacion
+        type: string
+        description: 'Nombre de la aplicación'
+      environment:
+        required: true
+        type: string
+        description: 'Entorno (dev, staging, prod)'
+      image_tag:
+        required: true
+        type: string
+        description: 'Tag de la imagen ya construida (ej: dev-abc1234)'
+      docker_image:
+        required: true
+        type: string
+        description: 'Nombre completo de la imagen (ej: usuario/app)'
+    outputs:
+      is_new_app:
+        description: 'Indica si es una app nueva'
+        value: ${{ jobs.update-manifests.outputs.is_new_app }}
+      changes_made:
+        description: 'Indica si se realizaron cambios'
+        value: ${{ jobs.update-manifests.outputs.changes_made }}
 
 jobs:
-  build:
-    name: Construir imagen Docker
+  update-manifests:
+    name: Actualizar Manifiestos
     runs-on: ubuntu-latest
-    
     outputs:
-      image_tag: ${{ steps.image_tag.outputs.tag }}
+      is_new_app: ${{ steps.check-app.outputs.is_new }}
+      changes_made: ${{ steps.check-changes.outputs.has_changes }}
     
     steps:
-      - name: Checkout código
+      # ═══════════════════════════════════════════════════════════
+      # 📥 CHECKOUT DEL REPOSITORIO
+      # ═══════════════════════════════════════════════════════════
+      - name: Checkout repository
         uses: actions/checkout@v4
-
-      - name: Generar tag de imagen
-        id: image_tag
-        run: |
-          TAG="gcr.io/${{ env.PROJECT_ID }}/${{ env.IMAGE_NAME }}:${{ github.sha }}"
-          echo "tag=$TAG" >> $GITHUB_OUTPUT
-          echo "Image tag: $TAG"
-
-      - name: Autenticar en Google Cloud
-        uses: google-github-actions/auth@v2
         with:
-          credentials_json: ${{ secrets.GCP_SA_KEY }}
+          token: ${{ secrets.GITHUB_TOKEN }}
+          fetch-depth: 0
 
-      - name: Configurar Cloud SDK
-        uses: google-github-actions/setup-gcloud@v2
-
-      - name: Configurar Docker para GCR
+      # ═══════════════════════════════════════════════════════════
+      # ⚙️ CONFIGURAR GIT
+      # ═══════════════════════════════════════════════════════════
+      - name: Configurar Git
         run: |
-          gcloud auth configure-docker
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
 
-      - name: Construir imagen Docker
+      # ═══════════════════════════════════════════════════════════
+      # 🔍 VERIFICAR SI LA APP EXISTE
+      # ═══════════════════════════════════════════════════════════
+      - name: Verificar si la app existe
+        id: check-app
         run: |
-          docker build -t ${{ steps.image_tag.outputs.tag }} .
-
-      - name: Push imagen a GCR
-        run: |
-          docker push ${{ steps.image_tag.outputs.tag }}
-
-  approval:
-    name: Aprobación manual
-    runs-on: ubuntu-latest
-    needs: build
-    environment: 
-      name: ${{ github.event.inputs.environment }}
-    
-    steps:
-      - name: Esperar aprobación
-        run: |
-          echo "✅ Despliegue aprobado para ${{ github.event.inputs.environment }}"
-          echo "Imagen a desplegar: ${{ needs.build.outputs.image_tag }}"
-
-  deploy:
-    name: Desplegar a GKE
-    runs-on: ubuntu-latest
-    needs: [build, approval]
-    
-    steps:
-      - name: Checkout código
-        uses: actions/checkout@v4
-
-      - name: Autenticar en Google Cloud
-        uses: google-github-actions/auth@v2
-        with:
-          credentials_json: ${{ secrets.GCP_SA_KEY }}
-
-      - name: Configurar Cloud SDK
-        uses: google-github-actions/setup-gcloud@v2
-
-      - name: Instalar gke-gcloud-auth-plugin
-        run: |
-          gcloud components install gke-gcloud-auth-plugin
-
-      - name: Conectar al cluster GKE
-        run: |
-          gcloud container clusters get-credentials ${{ env.GKE_CLUSTER }} \
-            --zone ${{ env.GKE_ZONE }} \
-            --project ${{ env.PROJECT_ID }}
-
-      - name: Desplegar a Kubernetes
-        run: |
-          kubectl set image deployment/mi-aplicacion \
-            mi-aplicacion=${{ needs.build.outputs.image_tag }} \
-            -n ${{ github.event.inputs.environment }}
+          APP_PATH="kubernetes/${{ inputs.environment }}/${{ inputs.app_name }}"
           
-          kubectl rollout status deployment/mi-aplicacion \
-            -n ${{ github.event.inputs.environment }} \
-            --timeout=5m
+          echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+          echo "🔍 VERIFICANDO APLICACIÓN"
+          echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+          echo "📦 App: ${{ inputs.app_name }}"
+          echo "🌍 Entorno: ${{ inputs.environment }}"
+          echo "📁 Path: $APP_PATH"
+          
+          if [ -d "$APP_PATH" ]; then
+            echo "is_new=false" >> $GITHUB_OUTPUT
+            echo "✅ App EXISTENTE - Se actualizará"
+            echo ""
+            echo "📋 Archivos encontrados:"
+            find "$APP_PATH" -type f \( -name "*.yaml" -o -name "*.yml" \) | while read file; do
+              echo "   • $file"
+            done
+          else
+            echo "is_new=true" >> $GITHUB_OUTPUT
+            echo "🆕 App NUEVA - Se creará estructura básica"
+            mkdir -p "$APP_PATH"
+            
+            # Crear deployment básico
+            cat > "$APP_PATH/deployment.yaml" <<EOF
+          apiVersion: apps/v1
+          kind: Deployment
+          metadata:
+            name: ${{ inputs.app_name }}
+            namespace: ${{ inputs.environment }}
+            labels:
+              app: ${{ inputs.app_name }}
+              environment: ${{ inputs.environment }}
+          spec:
+            replicas: 1
+            selector:
+              matchLabels:
+                app: ${{ inputs.app_name }}
+            template:
+              metadata:
+                labels:
+                  app: ${{ inputs.app_name }}
+                  environment: ${{ inputs.environment }}
+              spec:
+                containers:
+                - name: ${{ inputs.app_name }}
+                  image: ${{ inputs.docker_image }}:${{ inputs.image_tag }}
+                  ports:
+                  - containerPort: 8080
+                  resources:
+                    requests:
+                      memory: "128Mi"
+                      cpu: "100m"
+                    limits:
+                      memory: "512Mi"
+                      cpu: "500m"
+          EOF
+            
+            # Crear service básico
+            cat > "$APP_PATH/service.yaml" <<EOF
+          apiVersion: v1
+          kind: Service
+          metadata:
+            name: ${{ inputs.app_name }}
+            namespace: ${{ inputs.environment }}
+            labels:
+              app: ${{ inputs.app_name }}
+          spec:
+            selector:
+              app: ${{ inputs.app_name }}
+            ports:
+            - protocol: TCP
+              port: 80
+              targetPort: 8080
+            type: ClusterIP
+          EOF
+            
+            echo ""
+            echo "📦 Archivos creados:"
+            echo "   • $APP_PATH/deployment.yaml"
+            echo "   • $APP_PATH/service.yaml"
+          fi
+          echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
 
-      - name: Verificar despliegue
+      # ═══════════════════════════════════════════════════════════
+      # 🖼️ ACTUALIZAR IMAGEN EN MANIFIESTOS
+      # ═══════════════════════════════════════════════════════════
+      - name: Actualizar imagen en manifiestos
+        id: update-image
         run: |
-          kubectl get pods -n ${{ github.event.inputs.environment }}
-          kubectl get services -n ${{ github.event.inputs.environment }}
+          APP_PATH="kubernetes/${{ inputs.environment }}/${{ inputs.app_name }}"
+          NEW_IMAGE="${{ inputs.docker_image }}:${{ inputs.image_tag }}"
+          
+          echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+          echo "🖼️  ACTUALIZANDO IMAGEN DOCKER"
+          echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+          echo "🆕 Nueva imagen: $NEW_IMAGE"
+          echo ""
+          
+          UPDATED_COUNT=0
+          OLD_IMAGE=""
+          
+          # Buscar y actualizar todos los archivos YAML
+          for yaml_file in $(find "$APP_PATH" -type f \( -name "*.yaml" -o -name "*.yml" \)); do
+            if grep -q "image:" "$yaml_file"; then
+              # Capturar imagen anterior (solo la primera vez)
+              if [ -z "$OLD_IMAGE" ]; then
+                OLD_IMAGE=$(grep "image:" "$yaml_file" | head -1 | awk '{print $2}' | tr -d '"' | tr -d "'")
+                echo "📜 Imagen anterior: $OLD_IMAGE"
+              fi
+              
+              # Actualizar imagen
+              sed -i "s|image:.*|image: $NEW_IMAGE|g" "$yaml_file"
+              
+              echo "✅ Actualizado: $(basename $yaml_file)"
+              UPDATED_COUNT=$((UPDATED_COUNT + 1))
+            fi
+          done
+          
+          echo ""
+          echo "📊 Total archivos actualizados: $UPDATED_COUNT"
+          echo "old_image=$OLD_IMAGE" >> $GITHUB_OUTPUT
+          echo "updated_count=$UPDATED_COUNT" >> $GITHUB_OUTPUT
+          echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
 
-      - name: Notificar éxito
+      # ═══════════════════════════════════════════════════════════
+      # 🔎 VERIFICAR SI HAY CAMBIOS
+      # ═══════════════════════════════════════════════════════════
+      - name: Verificar cambios
+        id: check-changes
         run: |
-          echo "🚀 Despliegue completado exitosamente en ${{ github.event.inputs.environment }}"
-          echo "Imagen desplegada: ${{ needs.build.outputs.image_tag }}"
+          echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+          echo "🔎 VERIFICANDO CAMBIOS"
+          echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+          
+          if git diff --quiet; then
+            echo "has_changes=false" >> $GITHUB_OUTPUT
+            echo "⚠️  No hay cambios para commitear"
+          else
+            echo "has_changes=true" >> $GITHUB_OUTPUT
+            echo "✅ Cambios detectados"
+            echo ""
+            echo "📋 Archivos modificados:"
+            git diff --name-only | while read file; do
+              echo "   • $file"
+            done
+            echo ""
+            echo "📊 Estadísticas:"
+            git diff --stat
+          fi
+          echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+
+      # ═══════════════════════════════════════════════════════════
+      # 📊 GENERAR INFORME DE CAMBIOS
+      # ═══════════════════════════════════════════════════════════
+      - name: Generar informe
+        if: steps.check-changes.outputs.has_changes == 'true'
+        id: generate-report
+        run: |
+          TIMESTAMP=$(date '+%Y-%m-%d %H:%M:%S %Z')
+          REPORT_FILE="deployment-report.md"
+          
+          cat > "$REPORT_FILE" <<EOF
+          # 🚀 Informe de Despliegue
+          
+          ## 📦 Información General
+          | Campo | Valor |
+          |-------|-------|
+          | **Aplicación** | \`${{ inputs.app_name }}\` |
+          | **Entorno** | \`${{ inputs.environment }}\` |
+          | **Tipo** | ${{ steps.check-app.outputs.is_new == 'true' && '🆕 Nueva Aplicación' || '🔄 Actualización' }} |
+          | **Usuario** | @${{ github.actor }} |
+          | **Fecha** | ${TIMESTAMP} |
+          | **Commit** | \`${{ github.sha }}\` |
+          | **Rama** | \`${{ github.ref_name }}\` |
+          
+          ## 🐳 Imagen Docker
+          | Concepto | Valor |
+          |----------|-------|
+          | **Nueva Imagen** | \`${{ inputs.docker_image }}:${{ inputs.image_tag }}\` |
+          | **Imagen Anterior** | \`${{ steps.update-image.outputs.old_image || 'N/A (Nueva App)' }}\` |
+          | **Archivos Actualizados** | ${{ steps.update-image.outputs.updated_count }} |
+          
+          ## 📝 Archivos Modificados
+          \`\`\`
+          $(git diff --name-only)
+          \`\`\`
+          
+          ## 🔍 Cambios Detallados
+          <details>
+          <summary>Ver diff completo</summary>
+          
+          \`\`\`diff
+          $(git diff)
+          \`\`\`
+          </details>
+          
+          ## 🔗 Links
+          - **Workflow Run**: [${{ github.run_id }}](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }})
+          - **Commit**: [${{ github.sha }}](${{ github.server_url }}/${{ github.repository }}/commit/${{ github.sha }})
+          
+          ---
+          *🤖 Generado automáticamente por GitHub Actions*
+          EOF
+          
+          echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+          echo "📊 INFORME GENERADO"
+          echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+          cat "$REPORT_FILE"
+          echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+
+      # ═══════════════════════════════════════════════════════════
+      # 💾 COMMIT Y PUSH DE CAMBIOS
+      # ═══════════════════════════════════════════════════════════
+      - name: Commit y Push cambios
+        if: steps.check-changes.outputs.has_changes == 'true'
+        run: |
+          APP_PATH="kubernetes/${{ inputs.environment }}/${{ inputs.app_name }}"
+          
+          git add "$APP_PATH/"
+          
+          COMMIT_MSG="🚀 Deploy: ${{ inputs.app_name }} → ${{ inputs.environment }}
+
+          📦 App: ${{ inputs.app_name }}
+          🌍 Env: ${{ inputs.environment }}
+          🐳 Image: ${{ inputs.docker_image }}:${{ inputs.image_tag }}
+          ${{ steps.check-app.outputs.is_new == 'true' && '🆕 Type: New Application' || '🔄 Type: Update' }}
+          👤 User: ${{ github.actor }}
+          🔗 Commit: ${{ github.sha }}
+          📅 Date: $(date '+%Y-%m-%d %H:%M:%S %Z')
+          
+          Workflow: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+          
+          git commit -m "$COMMIT_MSG"
+          git push
+          
+          echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+          echo "✅ CAMBIOS PUSHEADOS AL REPOSITORIO"
+          echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+          echo "🎯 ArgoCD detectará los cambios automáticamente via webhook"
+          echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+
+      # ═══════════════════════════════════════════════════════════
+      # 💬 COMENTAR EN PR (SI EXISTE)
+      # ═══════════════════════════════════════════════════════════
+      - name: Comentar en PR
+        if: steps.check-changes.outputs.has_changes == 'true' && github.event_name == 'pull_request'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const isNew = '${{ steps.check-app.outputs.is_new }}' === 'true';
+            const timestamp = new Date().toLocaleString('es-ES', { 
+              timeZone: 'Europe/Madrid',
+              dateStyle: 'full',
+              timeStyle: 'long'
+            });
+            
+            github.rest.issues.createComment({
+              issue_number: context.issue.number,
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              body: `### ${isNew ? '🆕' : '🔄'} Despliegue ${isNew ? 'Inicial' : 'Actualizado'}
+              
+              | Campo | Valor |
+              |-------|-------|
+              | **Aplicación** | \`${{ inputs.app_name }}\` |
+              | **Entorno** | \`${{ inputs.environment }}\` |
+              | **Imagen** | \`${{ inputs.docker_image }}:${{ inputs.image_tag }}\` |
+              | **Usuario** | @${{ github.actor }} |
+              | **Fecha** | ${timestamp} |
+              
+              ${isNew ? '📦 Se ha creado la estructura inicial de la aplicación.' : '✅ Los manifiestos de Kubernetes han sido actualizados.'}
+              
+              🎯 **ArgoCD** detectará los cambios automáticamente y sincronizará la aplicación.`
+            })
+
+      # ═══════════════════════════════════════════════════════════
+      # ❌ CREAR ISSUE SI FALLA
+      # ═══════════════════════════════════════════════════════════
+      - name: Crear Issue si falla
+        if: failure()
+        uses: actions/github-script@v7
+        with:
+          script: |
+            github.rest.issues.create({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              title: `❌ Fallo en actualización de manifiestos: ${{ inputs.app_name }} (${{ inputs.environment }})`,
+              body: `## ❌ Error en Actualización de Manifiestos K8s
+              
+              El proceso de actualización de manifiestos ha fallado.
+              
+              ### 📋 Detalles
+              | Campo | Valor |
+              |-------|-------|
+              | **Aplicación** | \`${{ inputs.app_name }}\` |
+              | **Entorno** | \`${{ inputs.environment }}\` |
+              | **Imagen** | \`${{ inputs.docker_image }}:${{ inputs.image_tag }}\` |
+              | **Usuario** | @${{ github.actor }} |
+              | **Commit** | \`${{ github.sha }}\` |
+              | **Workflow** | [Ver logs](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}) |
+              
+              ### 🔍 Acciones Recomendadas
+              1. Revisar los logs del workflow
+              2. Verificar permisos del token de GitHub
+              3. Comprobar estructura del directorio \`kubernetes/${{ inputs.environment }}/\`
+              4. Validar sintaxis de los archivos YAML
+              
+              ### 🔗 Links
+              - [Workflow Run](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }})
+              - [Commit](${{ github.server_url }}/${{ github.repository }}/commit/${{ github.sha }})`,
+              labels: ['deployment', 'failed', 'kubernetes']
+            })
