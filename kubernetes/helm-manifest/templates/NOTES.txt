@@ -1,0 +1,8 @@
+1. To access your application:
+   {{- if .Values.ingress.enabled }}
+   Ingress Host: {{ (index .Values.ingress.hosts 0).host }}
+   {{- else }}
+   Service Name: {{ include "helloworld.fullname" . }}
+   Service Port: {{ .Values.service.port }}
+   {{- end }}
+2. Your app message is: {{ .Values.config.APP_MESSAGE }}

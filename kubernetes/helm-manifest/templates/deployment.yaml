@@ -1,0 +1,29 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "helloworld.fullname" . }}
+  labels:
+    {{- include "helloworld.labels" . | nindent 4 }}
+spec:
+  replicas: {{ .Values.replicaCount }}
+  selector:
+    matchLabels:
+      app: {{ include "helloworld.fullname" . }}
+  template:
+    metadata:
+      labels:
+        app: {{ include "helloworld.fullname" . }}
+    spec:
+      containers:
+        - name: {{ .Chart.Name }}
+          image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          ports:
+            - containerPort: 80
+          envFrom:
+            - configMapRef:
+                name: {{ include "helloworld.fullname" . }}-config
+            - secretRef:
+                name: {{ include "helloworld.fullname" . }}-secret
+          resources:
+            {{- toYaml .Values.resources | nindent 12 }}
