@@ -26,3 +26,23 @@ Thumbs.db
 
 # Optional: ignore logs
 *.log
+
+ Terraform
+*.tfstate
+*.tfstate.*
+*.tfvars
+.terraform/
+.terraform.lock.hcl
+
+# Kubernetes
+*-secret.yaml
+kubeconfig
+
+# Helm
+*.tgz
+charts/*/charts/
+
+# IDEs
+.idea/
+.vscode/
+*.swp
