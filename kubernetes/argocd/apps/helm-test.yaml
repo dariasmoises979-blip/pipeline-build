@@ -25,3 +25,5 @@ spec:
     automated:
       prune: true          # Elimina recursos no declarados
       selfHeal: true       # Re-aplica cambios si alguien los modifica fuera de ArgoCD
+    syncOptions:
+      - CreateNamespace=true  # Crea el namespace si no existe
