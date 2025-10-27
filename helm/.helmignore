@@ -1,0 +1,21 @@
+# Archivos de control de versiones
+.git/
+.gitignore
+
+# Archivos CI/CD
+ci/
+.github/
+.gitlab-ci.yml
+
+# Archivos temporales
+*.tmp
+*.swp
+*.bak
+*.log
+dist/
+
+# Documentación
+README.md
+CHANGELOG.md
+LICENSE
+examples/

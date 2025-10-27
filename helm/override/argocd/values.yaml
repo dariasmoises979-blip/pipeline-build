@@ -1,37 +1,71 @@
-# values.yaml para desplegar Argo CD en GKE con Ingress público HTTPS
+# ==========================================================
+# 🧭 Despliegue de Argo CD en Google Kubernetes Engine (GKE)
+# ==========================================================
+# Archivo: values.yaml
+# Descripción:
+#   Este archivo define la configuración de Argo CD desplegado en un clúster GKE,
+#   utilizando un Ingress público con HTTPS gestionado por GCE.
+#
+# Variables principales:
+#   - global.image.tag: versión de la imagen de Argo CD
+#   - server.service.type: tipo de servicio Kubernetes (LoadBalancer recomendado para GKE)
+#   - server.ingress.*: configuración de ingreso HTTP/HTTPS
+#   - configs.params.*: parámetros del servidor Argo CD (modo inseguro, root path, etc.)
+#   - extraObjects: certificados y dominios gestionados opcionales (ManagedCertificate)
+#
+# Requisitos:
+#   - Clúster GKE con Ingress Controller (GCE Ingress habilitado)
+#   - Dominio y certificado gestionado (opcional)
+# ==========================================================
 
 global:
   image:
-    tag: v2.13.0   # ajusta la versión si lo deseas
+    tag: v2.13.0   # 🧩 Versión de Argo CD (verifica compatibilidad con helm chart)
 
 server:
-  # Habilitar el servicio de Argo CD como LoadBalancer (necesario para GCE Ingress)
+  # ======================================================
+  # ⚙️ Configuración del servicio de Argo CD
+  # ======================================================
   service:
-    type: LoadBalancer
-    servicePortHttp: 80
-    servicePortHttps: 443
-    
+    type: LoadBalancer     # LoadBalancer requerido para Ingress GCE externo
+    servicePortHttp: 80    # Puerto HTTP interno
+    servicePortHttps: 443  # Puerto HTTPS interno
 
+  # ======================================================
+  # 🌐 Ingress público (opcional)
+  # ======================================================
+  # Descomenta este bloque si quieres usar Ingress gestionado por GCE
+  #
   # ingress:
   #   enabled: true
-  #   ingressClassName: "gce"   # o "gce" para Ingress externo
-  #   hostname: ""
+  #   ingressClassName: "gce"   # Clase de Ingress (GCE para externo)
+  #   hostname: "argocd.midominio.com"   # Dominio público asignado
   #   path: /
   #   pathType: Prefix
   #   tls: true
   #   annotations:
   #     kubernetes.io/ingress.class: "gce"
-  #     kubernetes.io/ingress.global-static-ip-name: "argocd-static-ip"  # opcional, si ya reservaste una IP en GCP
+  #     kubernetes.io/ingress.global-static-ip-name: "argocd-static-ip"  # IP reservada opcional
   #     networking.gke.io/managed-certificates: "argocd-cert"
   #     kubernetes.io/ingress.allow-http: "false"
 
 configs:
   params:
-    # Permitir login local con admin (puedes deshabilitarlo si usas OIDC)
+    # ======================================================
+    # 🔐 Parámetros del servidor Argo CD
+    # ======================================================
+    # Habilita el modo inseguro (solo para entornos de prueba)
     server.insecure: "true"
-    #server.rootpath: /
 
-# Recursos opcionales: certificados y dominio gestionado
+    # Habilita un rootpath personalizado (útil si ArgoCD se expone bajo un subpath)
+    # server.rootpath: "/argocd"
+
+# ======================================================
+# 🔏 Certificados y objetos extra (opcional)
+# ======================================================
+# Define un certificado gestionado por GCP para HTTPS automático.
+# Este recurso solo aplica si usas Ingress con GCE.
+#
 # extraObjects:
 #   - apiVersion: networking.gke.io/v1
 #     kind: ManagedCertificate

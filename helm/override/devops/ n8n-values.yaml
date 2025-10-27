@@ -1,0 +1,70 @@
+# ==========================================================
+# 🧭 Despliegue de n8n en entorno de producción
+# ==========================================================
+# Archivo: devops.yaml
+# Descripción:
+#   Este archivo define la configuración de n8n para producción
+#   con alta disponibilidad, ingress público HTTPS y base de datos PostgreSQL.
+#
+# Variables principales:
+#   - global.image.repository / tag
+#   - server.service.type
+#   - server.ingress.*: configuración del Ingress público con TLS
+#   - env.*: variables de entorno incluyendo DB, queue y auth
+#   - resources.*: límites y requests
+#
+# Requisitos:
+#   - Clúster Kubernetes con ingress
+#   - Secretos de autenticación y base de datos configurados
+# ==========================================================
+
+global:
+  image:
+    repository: n8nio/n8n
+    tag: 1.67.0
+
+server:
+  service:
+    type: LoadBalancer       # LoadBalancer para producción
+    port: 443
+
+  ingress:
+    enabled: true
+    ingressClassName: "gce"
+    annotations:
+      kubernetes.io/ingress.class: "gce"
+      kubernetes.io/ingress.global-static-ip-name: "n8n-prod-ip"
+      networking.gke.io/managed-certificates: "n8n-managed-cert"
+      kubernetes.io/ingress.allow-http: "false"
+    hosts:
+      - host: n8n.midominio.com
+        paths:
+          - path: /
+            pathType: Prefix
+    tls:
+      - hosts:
+          - n8n.midominio.com
+        secretName: n8n-tls
+
+configs:
+  params:
+    N8N_BASIC_AUTH_ACTIVE: "true"
+    N8N_BASIC_AUTH_USER: "user-prod"           # Se recomienda usar secretKeyRef
+    N8N_BASIC_AUTH_PASSWORD: "password-prod"   # Se recomienda usar secretKeyRef
+    GENERIC_TIMEZONE: "Europe/Madrid"
+    EXECUTIONS_DATA_SAVE_ON_ERROR: "all"
+    EXECUTIONS_MODE: "queue"                   # Escalabilidad con workers
+    QUEUE_BULL_REDIS_HOST: "redis-prod"
+    DB_TYPE: "postgresdb"
+    DB_POSTGRESDB_HOST: "postgres-prod"
+    DB_POSTGRESDB_DATABASE: "n8n"
+    DB_POSTGRESDB_USER: "n8nuser"
+    DB_POSTGRESDB_PASSWORD: "n8npassword"
+
+resources:
+  requests:
+    cpu: "1000m"
+    memory: "1Gi"
+  limits:
+    cpu: "2000m"
+    memory: "2Gi"

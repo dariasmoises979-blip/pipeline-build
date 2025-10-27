@@ -1,0 +1,26 @@
+name: Validate Kubernetes Manifests
+
+on:
+  pull_request:
+    branches:
+      - main
+
+jobs:
+  lint-and-validate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y yamllint kustomize kubectl
+      - name: Lint YAML files
+        run: yamllint kubernetes/
+      - name: Validate K8s manifests
+        run: |
+          find kubernetes/ -name '*.yaml' -exec kubectl apply --dry-run=client -f {} \;
+      - name: Validate Kustomize overlays
+        run: |
+          for env in dev qa pro; do
+            kustomize build kubernetes/overlays/$env | kubectl apply --dry-run=client -f -
+          done

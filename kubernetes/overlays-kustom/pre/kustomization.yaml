@@ -1,0 +1,19 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+namePrefix: pre-
+resources:
+  - ../../base
+
+images:
+  - name: my-app
+    newTag: "1.0-pre"
+
+replicas:
+  - name: my-app
+    count: 1
+
+configMapGenerator:
+  - name: pre-config
+    literals:
+      - ENV=pre
