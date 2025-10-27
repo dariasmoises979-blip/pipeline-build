@@ -1,12 +1,11 @@
-# Inicializa backend (remoto definido en ../backend.tf)
 terraform {
   required_version = ">= 1.6.0"
 }
 
 # ==========================================================
-# Módulo GKE para QA
+# Módulo GKE para Producción
 # ==========================================================
-module "gke_qa" {
+module "gke_pro" {
   source          = "../modules/gke"
   cluster_name    = var.gke_cluster_name
   region          = var.gke_region
@@ -18,11 +17,11 @@ module "gke_qa" {
 }
 
 # ==========================================================
-# Módulo Docker Instances para QA
+# Módulo Docker Instances para Producción
 # ==========================================================
-module "docker_app_qa" {
+module "docker_app_pro" {
   source         = "../modules/docker-instance"
-  name           = "qa-app"
+  name           = "pro-app"
   instance_count = var.docker_app_count
   machine_type   = var.docker_app_machine_type
   zone           = var.docker_app_zone
