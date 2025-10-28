@@ -193,33 +193,7 @@ releases:
 
 ### Fase 1: URGENTE (Esta semana)
 
-1. **Seguridad Crítica**:
-```bash
-# Eliminar estados de Terraform
-git rm --cached terraform/proyectos/docker-instance/terraform.tfstate*
 
-# Configurar .gitignore
-cat >> .gitignore << EOF
-# Terraform
-*.tfstate
-*.tfstate.*
-*.tfvars
-.terraform/
-.terraform.lock.hcl
-
-# Kubernetes
-*-secret.yaml
-kubeconfig
-
-# Helm
-*.tgz
-charts/*/charts/
-
-# IDEs
-.idea/
-.vscode/
-*.swp
-EOF
 ```
 
 2. **Backend Remoto**:
