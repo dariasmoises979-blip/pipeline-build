@@ -16,7 +16,7 @@ on:
       image_tag:
         required: true
         type: string
-        description: 'Docker image tag to deploy (recibido del workflow de build)'
+        description: 'Docker image tag to deploy (formato: environment-shortsha)'
       dockerhub_username:
         required: true
         type: string
@@ -70,7 +70,7 @@ jobs:
           echo "🚀 GITOPS DEPLOYMENT INFORMATION"
           echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
           echo "🌍 Environment: ${{ inputs.environment }}"
-          echo "🏷️  Image Tag: ${{ inputs.image_tag }}"
+          echo "🏷️  New Image Tag: ${{ inputs.image_tag }}"
           echo "📦 Docker Image: ${{ inputs.docker_image }}"
           echo "👤 Docker Hub User: ${{ inputs.dockerhub_username }}"
           echo "📂 Manifests Path: ${{ inputs.manifests_path }}"
