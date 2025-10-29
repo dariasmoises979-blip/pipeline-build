@@ -137,10 +137,10 @@ jobs:
           BRANCH_NAME="${{ github.ref_name }}"
           
           TAGS=()
-          TAGS+=("${ENVIRONMENT}")
+          # TAGS+=("${ENVIRONMENT}")
           TAGS+=("${ENVIRONMENT}-${SHORT_SHA}")
-          TAGS+=("${COMMIT_SHA}")
-          TAGS+=("${SHORT_SHA}")
+          # TAGS+=("${COMMIT_SHA}")
+          # TAGS+=("${SHORT_SHA}")
           
           if [[ "${BRANCH_NAME}" == "main" || "${BRANCH_NAME}" == "master" ]]; then
             TAGS+=("latest")
