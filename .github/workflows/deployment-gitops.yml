@@ -121,6 +121,7 @@ jobs:
             echo "❌ Error: Directory ${{ inputs.manifests_path }}/${{ inputs.environment }} not found!"
             echo ""
             echo "📋 Available structure:"
+            pwd
             ls -la ${{ inputs.manifests_path }} || echo "❌ ${{ inputs.manifests_path }} directory not found"
             echo ""
             echo "💡 Expected structure:"
@@ -137,6 +138,7 @@ jobs:
           echo ""
           echo "📋 Files in directory:"
           ls -la ${{ inputs.manifests_path }}/${{ inputs.environment }}
+          pwd
           echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
 
       - name: Update Image Tag in Manifests
@@ -313,6 +315,7 @@ jobs:
             echo "❌ Error: Directory ${{ inputs.manifests_path }}/${{ inputs.environment }} not found!"
             echo ""
             echo "📋 Available structure:"
+            pwd
             ls -la ${{ inputs.manifests_path }} || echo "❌ ${{ inputs.manifests_path }} directory not found"
             echo ""
             echo "💡 Expected structure:"
@@ -328,6 +331,7 @@ jobs:
           echo "✅ Directory found: ${{ inputs.manifests_path }}/${{ inputs.environment }}"
           echo ""
           echo "📋 Files in directory:"
+          pwd
           ls -la ${{ inputs.manifests_path }}/${{ inputs.environment }}
           echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
 
