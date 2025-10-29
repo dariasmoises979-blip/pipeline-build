@@ -181,66 +181,94 @@ jobs:
           echo "✅ Revisión completada. Resultados:"
           echo "https://sonarcloud.io/project/overview?id=dariasmoises979-blip_app"
 
-  # ═══════════════════════════════════════════════════════════
-  # 🕵️ JOB 5: DETECCIÓN DE SECRETOS
-  # ═══════════════════════════════════════════════════════════
-  secrets_detection:
-    name: Detección de Claves o Secretos
-    runs-on: ubuntu-latest
-    needs: sonarcloud-qa
-    permissions:
-      security-events: write
-      actions: read
-      contents: read
+# ═══════════════════════════════════════════════════════════
+# 🕵️ JOB 5: DETECCIÓN DE SECRETOS
+# ═══════════════════════════════════════════════════════════
+secrets_detection:
+  name: Detección de Claves o Secretos
+  runs-on: ubuntu-latest
+  needs: sonarcloud-qa
+  permissions:
+    security-events: write
+    actions: read
+    contents: read
 
-    steps:
-      - name: 💾 Descargar artefacto del proyecto
-        uses: actions/download-artifact@v4
-        with:
-          name: app-build
+  steps:
+    # Checkout mínimo solo para que CodeQL encuentre el workflow
+    - name: 📥 Checkout del workflow
+      uses: actions/checkout@v4
+      with:
+        sparse-checkout: |
+          .github/workflows
+        sparse-checkout-cone-mode: false
 
-      - name: 📦 Extraer proyecto
-        run: tar -xzf pipeline-build.tar.gz
+    - name: 💾 Descargar artefacto del proyecto
+      uses: actions/download-artifact@v4
+      with:
+        name: app-build
 
-      - name: 🔍 Inicializar CodeQL
-        uses: github/codeql-action/init@v3
-        with:
-          languages: python
+    - name: 📦 Extraer proyecto app
+      run: |
+        tar -xzf pipeline-build.tar.gz
+        ls -la
 
-      - name: 🧠 Ejecutar análisis de CodeQL (secret detection)
-        uses: github/codeql-action/analyze@v3
-        with:
-          category: "secret"
+    - name: 🔍 Inicializar CodeQL
+      uses: github/codeql-action/init@v3
+      with:
+        languages: python
+        # Especificar la ubicación del código a analizar
+        source-root: .
 
-      - name: ✅ Confirmación de seguridad
-        run: echo "Verificación de secretos completada"
+    - name: 🧠 Ejecutar análisis de CodeQL (secret detection)
+      uses: github/codeql-action/analyze@v3
+      with:
+        category: "secret"
 
-  # ═══════════════════════════════════════════════════════════
-  # 🛡️ JOB 6: ANÁLISIS DE VULNERABILIDADES
-  # ═══════════════════════════════════════════════════════════
-  security_vulnerabilities:
-    name: Análisis de Vulnerabilidades de Seguridad
-    runs-on: ubuntu-latest
-    needs: secrets_detection
+    - name: ✅ Confirmación de seguridad
+      run: echo "Verificación de secretos completada"
 
-    steps:
-      - name: 💾 Descargar artefacto del proyecto
-        uses: actions/download-artifact@v4
-        with:
-          name: app-build
+# ═══════════════════════════════════════════════════════════
+# 🛡️ JOB 6: ANÁLISIS DE VULNERABILIDADES
+# ═══════════════════════════════════════════════════════════
+security_vulnerabilities:
+  name: Análisis de Vulnerabilidades de Seguridad
+  runs-on: ubuntu-latest
+  needs: secrets_detection
+  permissions:
+    security-events: write
+    actions: read
+    contents: read
 
-      - name: 📦 Extraer proyecto
-        run: tar -xzf pipeline-build.tar.gz
+  steps:
+    # Checkout mínimo solo para que CodeQL encuentre el workflow
+    - name: 📥 Checkout del workflow
+      uses: actions/checkout@v4
+      with:
+        sparse-checkout: |
+          .github/workflows
+        sparse-checkout-cone-mode: false
 
-      - name: 🔍 Inicializar CodeQL
-        uses: github/codeql-action/init@v3
-        with:
-          languages: python
+    - name: 💾 Descargar artefacto del proyecto
+      uses: actions/download-artifact@v4
+      with:
+        name: app-build
 
-      - name: 🧠 Ejecutar análisis de seguridad
-        uses: github/codeql-action/analyze@v3
-        with:
-          category: "security"
+    - name: 📦 Extraer proyecto app
+      run: |
+        tar -xzf pipeline-build.tar.gz
+        ls -la
 
-      - name: ✅ Confirmación final
-        run: echo "Análisis de vulnerabilidades completado"
+    - name: 🔍 Inicializar CodeQL
+      uses: github/codeql-action/init@v3
+      with:
+        languages: python
+        queries: security-extended
+        source-root: .
+
+    - name: 🧠 Ejecutar análisis de seguridad
+      uses: github/codeql-action/analyze@v3
+      with:
+        category: "security"
+
+    - name: ✅ Confirmación final
+      run: echo "Análisis de vulnerabilidades completado"
