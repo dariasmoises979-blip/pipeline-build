@@ -226,20 +226,47 @@ jobs:
           args: --severity-threshold=high --file=Dockerfile
 
       # ─────────────────────────────────────────────────────
-      # DOCKLE - Best Practices de Docker
+      # DOCKLE - Best Practices de Docker (VERSIÓN CORREGIDA)
       # ─────────────────────────────────────────────────────
       - name: 🐋 Dockle - Docker Best Practices
+        continue-on-error: true  # No fallar el workflow si Dockle falla
         run: |
-          VERSION=$(curl --silent "https://api.github.com/repos/goodwithtech/dockle/releases/latest" | \
-            grep '"tag_name":' | sed -E 's/.*"v([^"]+)".*/\1/')
-          curl -L -o dockle.deb https://github.com/goodwithtech/dockle/releases/download/v${VERSION}/dockle_${VERSION}_Linux-64bit.deb
-          sudo dpkg -i dockle.deb
-          
           echo "### 🐋 Dockle - Docker Best Practices" >> $GITHUB_STEP_SUMMARY
-          dockle --exit-code 0 --exit-level warn ${{ needs.pull-image.outputs.image_full }} | tee dockle-report.txt
-          echo '```' >> $GITHUB_STEP_SUMMARY
-          cat dockle-report.txt >> $GITHUB_STEP_SUMMARY
-          echo '```' >> $GITHUB_STEP_SUMMARY
+          
+          # Intentar obtener la última versión
+          VERSION=$(curl --silent --fail "https://api.github.com/repos/goodwithtech/dockle/releases/latest" | \
+            grep '"tag_name":' | sed -E 's/.*"v([^"]+)".*/\1/' || echo "0.4.14")
+          
+          if [ -z "$VERSION" ] || [ "$VERSION" = "0.4.14" ]; then
+            echo "⚠️ No se pudo obtener la última versión, usando v0.4.14" >> $GITHUB_STEP_SUMMARY
+            VERSION="0.4.14"
+          fi
+          
+          echo "📦 Descargando Dockle v${VERSION}..." >> $GITHUB_STEP_SUMMARY
+          
+          # Descargar Dockle
+          DOCKLE_URL="https://github.com/goodwithtech/dockle/releases/download/v${VERSION}/dockle_${VERSION}_Linux-64bit.deb"
+          
+          if curl -fL -o dockle.deb "$DOCKLE_URL"; then
+            echo "✅ Descarga exitosa" >> $GITHUB_STEP_SUMMARY
+            
+            # Instalar
+            if sudo dpkg -i dockle.deb 2>/dev/null; then
+              echo "✅ Instalación exitosa" >> $GITHUB_STEP_SUMMARY
+              
+              # Ejecutar escaneo
+              echo '```' >> $GITHUB_STEP_SUMMARY
+              dockle --exit-code 0 --exit-level warn ${{ needs.pull-image.outputs.image_full }} | tee dockle-report.txt || true
+              cat dockle-report.txt >> $GITHUB_STEP_SUMMARY
+              echo '```' >> $GITHUB_STEP_SUMMARY
+            else
+              echo "❌ Error en la instalación de Dockle" >> $GITHUB_STEP_SUMMARY
+              echo "Dockle scan omitido" > dockle-report.txt
+            fi
+          else
+            echo "❌ Error al descargar Dockle desde $DOCKLE_URL" >> $GITHUB_STEP_SUMMARY
+            echo "Dockle scan omitido" > dockle-report.txt
+          fi
 
       # ─────────────────────────────────────────────────────
       # Generar resumen de vulnerabilidades
