@@ -2,6 +2,7 @@
 # 🐳 WORKFLOW REUSABLE: Build & Push Docker Image
 # Construye y publica imágenes Docker con tags automáticos
 # basados en el entorno (pro, pre, staging) y commit SHA
+# 🆕 DEVUELVE EL TAG GENERADO COMO OUTPUT
 ########################################
 
 name: Reusable Build & Push Docker
@@ -63,6 +64,23 @@ on:
       EXTERNAL_REPO_TOKEN:
         description: 'Token para clonar repositorio privado (opcional)'
         required: false
+    
+    # ═══════════════════════════════════════════════════════════
+    # 🆕 OUTPUTS: DEVOLVER INFORMACIÓN DEL BUILD
+    # ═══════════════════════════════════════════════════════════
+    outputs:
+      image_tag:
+        description: 'Tag principal generado (formato: environment-shortsha)'
+        value: ${{ jobs.docker-build-push.outputs.image_tag }}
+      full_image:
+        description: 'Imagen completa con tag (usuario/imagen:tag)'
+        value: ${{ jobs.docker-build-push.outputs.full_image }}
+      short_sha:
+        description: 'SHA corto del commit (7 caracteres)'
+        value: ${{ jobs.docker-build-push.outputs.short_sha }}
+      all_tags:
+        description: 'Todos los tags generados (separados por coma)'
+        value: ${{ jobs.docker-build-push.outputs.all_tags }}
 
 jobs:
   # ═══════════════════════════════════════════════════════════
@@ -71,6 +89,15 @@ jobs:
   docker-build-push:
     name: Build & Push Docker Image
     runs-on: ubuntu-latest
+    
+    # ═══════════════════════════════════════════════════════════
+    # 🆕 OUTPUTS DEL JOB
+    # ═══════════════════════════════════════════════════════════
+    outputs:
+      image_tag: ${{ steps.tags.outputs.primary_tag }}
+      full_image: ${{ steps.tags.outputs.full_image }}
+      short_sha: ${{ steps.tags.outputs.short_sha }}
+      all_tags: ${{ steps.tags.outputs.all_tags_list }}
     
     steps:
       # ═══════════════════════════════════════════════════════════
@@ -136,11 +163,16 @@ jobs:
           SHORT_SHA="${COMMIT_SHA:0:7}"
           BRANCH_NAME="${{ github.ref_name }}"
           
+          # ═══════════════════════════════════════════════════════════
+          # 🎯 TAG PRINCIPAL (este se usará para el deployment)
+          # ═══════════════════════════════════════════════════════════
+          PRIMARY_TAG="${ENVIRONMENT}-${SHORT_SHA}"
+          
           TAGS=()
-          # TAGS+=("${ENVIRONMENT}")
-          TAGS+=("${ENVIRONMENT}-${SHORT_SHA}")
-          # TAGS+=("${COMMIT_SHA}")
-          # TAGS+=("${SHORT_SHA}")
+          TAGS+=("${PRIMARY_TAG}")           # dev-abc1234 (PRINCIPAL)
+          TAGS+=("${ENVIRONMENT}")           # dev
+          TAGS+=("${COMMIT_SHA}")            # SHA completo
+          TAGS+=("${SHORT_SHA}")             # abc1234
           
           if [[ "${BRANCH_NAME}" == "main" || "${BRANCH_NAME}" == "master" ]]; then
             TAGS+=("latest")
@@ -159,14 +191,28 @@ jobs:
             done
           fi
           
+          # Construir string de tags para Docker
           DOCKER_TAGS=""
           for tag in "${TAGS[@]}"; do
             DOCKER_TAGS="${DOCKER_TAGS}${{ inputs.dockerhub_username }}/${{ inputs.docker_image }}:${tag},"
           done
           DOCKER_TAGS="${DOCKER_TAGS%,}"
           
+          # ═══════════════════════════════════════════════════════════
+          # 📤 EXPORTAR OUTPUTS
+          # ═══════════════════════════════════════════════════════════
           echo "tags=${DOCKER_TAGS}" >> $GITHUB_OUTPUT
+          echo "primary_tag=${PRIMARY_TAG}" >> $GITHUB_OUTPUT
+          echo "full_image=${{ inputs.dockerhub_username }}/${{ inputs.docker_image }}:${PRIMARY_TAG}" >> $GITHUB_OUTPUT
+          echo "short_sha=${SHORT_SHA}" >> $GITHUB_OUTPUT
           
+          # Lista de todos los tags (separados por coma)
+          ALL_TAGS_LIST=$(IFS=,; echo "${TAGS[*]}")
+          echo "all_tags_list=${ALL_TAGS_LIST}" >> $GITHUB_OUTPUT
+          
+          # ═══════════════════════════════════════════════════════════
+          # 📊 REPORTE DE TAGS GENERADOS
+          # ═══════════════════════════════════════════════════════════
           echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
           echo "🏷️  TAGS GENERADOS PARA LA IMAGEN DOCKER"
           echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
@@ -179,9 +225,16 @@ jobs:
             echo "🌿 Ref externo: ${{ inputs.external_repo_ref }}"
           fi
           echo ""
-          echo "📋 Lista de tags:"
+          echo "🎯 TAG PRINCIPAL (para deployment):"
+          echo "   ⭐ ${{ inputs.dockerhub_username }}/${{ inputs.docker_image }}:${PRIMARY_TAG}"
+          echo ""
+          echo "📋 Todos los tags generados:"
           for tag in "${TAGS[@]}"; do
-            echo "   • ${{ inputs.dockerhub_username }}/${{ inputs.docker_image }}:${tag}"
+            if [[ "${tag}" == "${PRIMARY_TAG}" ]]; then
+              echo "   • ${{ inputs.dockerhub_username }}/${{ inputs.docker_image }}:${tag} ⭐ (PRIMARY)"
+            else
+              echo "   • ${{ inputs.dockerhub_username }}/${{ inputs.docker_image }}:${tag}"
+            fi
           done
           echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
 
@@ -239,9 +292,18 @@ jobs:
             echo "📦 External Repo: ${{ inputs.external_repo }} @ ${{ inputs.external_repo_ref }}"
           fi
           echo ""
+          echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+          echo "🎯 OUTPUT PARA DEPLOYMENT"
+          echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+          echo "🏷️  Primary Tag: ${{ steps.tags.outputs.primary_tag }}"
+          echo "📦 Full Image: ${{ steps.tags.outputs.full_image }}"
+          echo "🔗 Short SHA: ${{ steps.tags.outputs.short_sha }}"
+          echo "📋 All Tags: ${{ steps.tags.outputs.all_tags_list }}"
+          echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+          echo ""
           echo "📋 Pull Commands:"
+          echo "   docker pull ${{ steps.tags.outputs.full_image }}"
           echo "   docker pull ${{ inputs.dockerhub_username }}/${{ inputs.docker_image }}:${{ inputs.environment }}"
-          echo "   docker pull ${{ inputs.dockerhub_username }}/${{ inputs.docker_image }}:${GITHUB_SHA:0:7}"
           echo ""
           echo "🔗 Workflow Run: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
           echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
