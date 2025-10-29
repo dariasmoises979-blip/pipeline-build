@@ -271,13 +271,13 @@ jobs:
         if: always()
         continue-on-error: true
         with:
-          name: security-reports
-          path: |
-            trivy-results.sarif
-            trivy-report.json
-            dockle-report.txt
-          retention-days: 30
-          if-no-files-found: warn
+            name: security-reports-${{ inputs.image_tag }}
+            path: |
+              trivy-results.sarif
+              trivy-report.json
+              dockle-report.txt
+            retention-days: 30
+            if-no-files-found: warn
 
   # ═══════════════════════════════════════════════════════════
   # ⚙️ JOB 4: ANÁLISIS DE RENDIMIENTO Y OPTIMIZACIÓN
@@ -379,12 +379,12 @@ jobs:
         if: always()
         continue-on-error: true
         with:
-          name: performance-reports
-          path: |
-            dive-report.txt
-            structure-test.txt
-          retention-days: 30
-          if-no-files-found: warn
+            name: performance-reports-${{ inputs.image_tag }}
+            path: |
+              dive-report.txt
+              structure-test.txt
+            retention-days: 30
+            if-no-files-found: warn
 
   # ═══════════════════════════════════════════════════════════
   # 🚀 JOB 5: PRUEBAS DE RENDIMIENTO EN RUNTIME
@@ -522,14 +522,14 @@ jobs:
         uses: actions/download-artifact@v4
         continue-on-error: true
         with:
-          name: security-reports
+          name: security-reports-${{ inputs.image_tag }}
           path: ./reports/security
 
       - name: 📥 Descargar artefactos de rendimiento
         uses: actions/download-artifact@v4
         continue-on-error: true
         with:
-          name: performance-reports
+          name: performance-reports-${{ inputs.image_tag }}
           path: ./reports/performance
 
       - name: 📊 Generar reporte consolidado
@@ -654,10 +654,10 @@ jobs:
         uses: actions/upload-artifact@v4
         if: always()
         with:
-          name: final-security-report
-          path: SECURITY_REPORT.md
-          retention-days: 90
-          if-no-files-found: error
+            name: final-security-report-${{ inputs.image_tag }}
+            path: SECURITY_REPORT.md
+            retention-days: 90
+            if-no-files-found: error
 
       - name: 💬 Comentar en Pull Request
         if: github.event_name == 'pull_request'
