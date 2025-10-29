@@ -1,0 +1,487 @@
+########################################
+# 🚀 WORKFLOW REUSABLE: GitOps Deployment
+# Actualiza manifiestos YAML con nuevo tag de imagen
+# y hace push para que ArgoCD detecte y despliegue
+########################################
+
+name: Reusable GitOps Deployment
+
+on:
+  workflow_call:
+    inputs:
+      environment:
+        required: true
+        type: string
+        description: 'Target environment (dev, staging, pre, prod)'
+      image_tag:
+        required: true
+        type: string
+        description: 'Docker image tag to deploy (recibido del workflow de build)'
+      dockerhub_username:
+        required: true
+        type: string
+        description: 'Usuario de Docker Hub'
+      docker_image:
+        required: true
+        type: string
+        description: 'Nombre de la imagen Docker'
+      manifests_path:
+        required: false
+        type: string
+        default: 'k8s'
+        description: 'Ruta donde están los manifiestos YAML (ej: k8s, manifests, deploy)'
+      manifest_file_pattern:
+        required: false
+        type: string
+        default: '*.yaml'
+        description: 'Patrón de archivos a actualizar (ej: deployment.yaml, *.yml)'
+      git_user_name:
+        required: false
+        type: string
+        default: 'github-actions[bot]'
+        description: 'Nombre del usuario Git para el commit'
+      git_user_email:
+        required: false
+        type: string
+        default: 'github-actions[bot]@users.noreply.github.com'
+        description: 'Email del usuario Git para el commit'
+      commit_message_prefix:
+        required: false
+        type: string
+        default: '[GitOps]'
+        description: 'Prefijo para el mensaje del commit'
+      requires_approval:
+        required: false
+        type: boolean
+        default: false
+        description: 'Si requiere aprobación manual (pre/prod)'
+
+jobs:
+  # ═══════════════════════════════════════════════════════════
+  # 📋 JOB 1: MOSTRAR INFORMACIÓN DEL DEPLOYMENT
+  # ═══════════════════════════════════════════════════════════
+  show-deployment-info:
+    name: 📦 Deployment Information
+    runs-on: ubuntu-latest
+    steps:
+      - name: Display Deployment Information
+        run: |
+          echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+          echo "🚀 GITOPS DEPLOYMENT INFORMATION"
+          echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+          echo "🌍 Environment: ${{ inputs.environment }}"
+          echo "🏷️  Image Tag: ${{ inputs.image_tag }}"
+          echo "📦 Docker Image: ${{ inputs.docker_image }}"
+          echo "👤 Docker Hub User: ${{ inputs.dockerhub_username }}"
+          echo "📂 Manifests Path: ${{ inputs.manifests_path }}"
+          echo "📄 File Pattern: ${{ inputs.manifest_file_pattern }}"
+          echo "🔐 Requires Approval: ${{ inputs.requires_approval }}"
+          echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+          echo "🔗 Triggered by: ${{ github.event_name }}"
+          echo "👤 Actor: ${{ github.actor }}"
+          echo "🕐 Timestamp: $(date -u +'%Y-%m-%d %H:%M:%S UTC')"
+          echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+
+      - name: Show Full Image Path
+        run: |
+          echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+          echo "🐳 DOCKER IMAGE TO DEPLOY"
+          echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+          echo "📦 Full Image:"
+          echo "   ${{ inputs.dockerhub_username }}/${{ inputs.docker_image }}:${{ inputs.image_tag }}"
+          echo ""
+          echo "🔗 Docker Hub URL:"
+          echo "   https://hub.docker.com/r/${{ inputs.dockerhub_username }}/${{ inputs.docker_image }}/tags?name=${{ inputs.image_tag }}"
+          echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+
+  # ═══════════════════════════════════════════════════════════
+  # 🔄 JOB 2: ACTUALIZAR MANIFIESTOS (AUTOMÁTICO: DEV/STAGING)
+  # ═══════════════════════════════════════════════════════════
+  update-manifests-auto:
+    name: 🔄 Update Manifests (${{ inputs.environment }})
+    if: inputs.environment == 'dev' || inputs.environment == 'staging'
+    needs: show-deployment-info
+    runs-on: ubuntu-latest
+    environment: ${{ inputs.environment }}
+    
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          fetch-depth: 0
+
+      - name: Verify Manifests Directory
+        run: |
+          echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+          echo "📂 VERIFYING MANIFESTS STRUCTURE"
+          echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+          
+          if [ ! -d "${{ inputs.manifests_path }}/${{ inputs.environment }}" ]; then
+            echo "❌ Error: Directory ${{ inputs.manifests_path }}/${{ inputs.environment }} not found!"
+            echo ""
+            echo "📋 Available structure:"
+            ls -la ${{ inputs.manifests_path }} || echo "❌ ${{ inputs.manifests_path }} directory not found"
+            echo ""
+            echo "💡 Expected structure:"
+            echo "   ${{ inputs.manifests_path }}/"
+            echo "   ├── dev/"
+            echo "   ├── staging/"
+            echo "   ├── pre/"
+            echo "   └── prod/"
+            echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+            exit 1
+          fi
+          
+          echo "✅ Directory found: ${{ inputs.manifests_path }}/${{ inputs.environment }}"
+          echo ""
+          echo "📋 Files in directory:"
+          ls -la ${{ inputs.manifests_path }}/${{ inputs.environment }}
+          echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+
+      - name: Update Image Tag in Manifests
+        id: update
+        run: |
+          echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+          echo "🔄 UPDATING IMAGE TAGS IN MANIFESTS"
+          echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+          
+          MANIFESTS_DIR="${{ inputs.manifests_path }}/${{ inputs.environment }}"
+          NEW_IMAGE="${{ inputs.dockerhub_username }}/${{ inputs.docker_image }}:${{ inputs.image_tag }}"
+          IMAGE_NAME="${{ inputs.dockerhub_username }}/${{ inputs.docker_image }}"
+          UPDATED_FILES=""
+          CHANGES_MADE=false
+          
+          echo "🔍 Searching for YAML files matching: ${{ inputs.manifest_file_pattern }}"
+          echo "📂 In directory: ${MANIFESTS_DIR}"
+          echo "🎯 Image to update: ${IMAGE_NAME}"
+          echo "🏷️  New tag: ${{ inputs.image_tag }}"
+          echo ""
+          
+          # Buscar archivos YAML que contengan referencias a la imagen
+          for file in ${MANIFESTS_DIR}/${{ inputs.manifest_file_pattern }}; do
+            if [ -f "$file" ]; then
+              echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+              echo "📄 Processing: $(basename $file)"
+              
+              # Verificar si el archivo contiene la imagen
+              if grep -q "${IMAGE_NAME}" "$file"; then
+                echo "   ✅ Image reference found"
+                
+                # Mostrar línea actual
+                echo "   📋 Current image line(s):"
+                grep "${IMAGE_NAME}" "$file" | sed 's/^/      /'
+                
+                # Actualizar el tag usando sed
+                # Busca patrones como: image: user/image:old-tag
+                sed -i.bak "s|image: ${IMAGE_NAME}:[^[:space:]]*|image: ${NEW_IMAGE}|g" "$file"
+                
+                # También buscar patrones sin 'image:' explícito (para valores en values.yaml)
+                sed -i.bak "s|${IMAGE_NAME}:[^[:space:]]*|${NEW_IMAGE}|g" "$file"
+                
+                # Verificar si hubo cambios
+                if ! cmp -s "$file" "$file.bak"; then
+                  echo "   ✅ File updated successfully"
+                  echo "   📋 New image line(s):"
+                  grep "${IMAGE_NAME}" "$file" | sed 's/^/      /'
+                  UPDATED_FILES="${UPDATED_FILES}$(basename $file) "
+                  CHANGES_MADE=true
+                  rm "$file.bak"
+                else
+                  echo "   ℹ️  No changes needed (already up to date)"
+                  rm "$file.bak"
+                fi
+              else
+                echo "   ⚠️  Image reference not found in this file"
+              fi
+            fi
+          done
+          
+          echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+          
+          if [ "$CHANGES_MADE" = true ]; then
+            echo "✅ MANIFEST UPDATE COMPLETED"
+            echo "📝 Updated files: ${UPDATED_FILES}"
+            echo "changes_made=true" >> $GITHUB_OUTPUT
+            echo "updated_files=${UPDATED_FILES}" >> $GITHUB_OUTPUT
+          else
+            echo "ℹ️  NO CHANGES MADE"
+            echo "   All manifests are already using tag: ${{ inputs.image_tag }}"
+            echo "changes_made=false" >> $GITHUB_OUTPUT
+          fi
+          echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+
+      - name: Configure Git
+        if: steps.update.outputs.changes_made == 'true'
+        run: |
+          git config --global user.name "${{ inputs.git_user_name }}"
+          git config --global user.email "${{ inputs.git_user_email }}"
+
+      - name: Commit and Push Changes
+        if: steps.update.outputs.changes_made == 'true'
+        run: |
+          echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+          echo "📤 COMMITTING AND PUSHING CHANGES"
+          echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+          
+          # Agregar cambios
+          git add ${{ inputs.manifests_path }}/${{ inputs.environment }}
+          
+          # Crear mensaje de commit detallado
+          COMMIT_MSG="${{ inputs.commit_message_prefix }} Update ${{ inputs.environment }} to ${{ inputs.image_tag }}
+
+          Environment: ${{ inputs.environment }}
+          Image: ${{ inputs.dockerhub_username }}/${{ inputs.docker_image }}
+          Tag: ${{ inputs.image_tag }}
+          Updated files: ${{ steps.update.outputs.updated_files }}
+          Triggered by: ${{ github.actor }}
+          Workflow: ${{ github.workflow }}
+          Run: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+          
+          git commit -m "${COMMIT_MSG}"
+          
+          echo "✅ Changes committed"
+          echo ""
+          echo "📋 Commit details:"
+          git log -1 --stat
+          echo ""
+          
+          # Push changes
+          echo "⬆️  Pushing to remote..."
+          git push
+          
+          echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+          echo "✅ CHANGES PUSHED SUCCESSFULLY"
+          echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+          echo "🔄 ArgoCD will detect changes and deploy automatically"
+          echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+
+      - name: Deployment Summary
+        if: always()
+        run: |
+          echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+          echo "📊 DEPLOYMENT SUMMARY"
+          echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+          echo "🌍 Environment: ${{ inputs.environment }}"
+          echo "📦 Image: ${{ inputs.dockerhub_username }}/${{ inputs.docker_image }}:${{ inputs.image_tag }}"
+          echo "📝 Changes Made: ${{ steps.update.outputs.changes_made }}"
+          if [ "${{ steps.update.outputs.changes_made }}" = "true" ]; then
+            echo "📄 Updated Files: ${{ steps.update.outputs.updated_files }}"
+          fi
+          echo "👤 Executed by: ${{ github.actor }}"
+          echo "🕐 Timestamp: $(date -u +'%Y-%m-%d %H:%M:%S UTC')"
+          echo ""
+          echo "🔗 Workflow Run:"
+          echo "   ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+          echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+
+  # ═══════════════════════════════════════════════════════════
+  # 🔐 JOB 3: ACTUALIZAR MANIFIESTOS (MANUAL: PRE/PROD)
+  # ═══════════════════════════════════════════════════════════
+  update-manifests-manual:
+    name: 🔐 Update Manifests (${{ inputs.environment }}) - Requires Approval
+    if: inputs.environment == 'pre' || inputs.environment == 'prod'
+    needs: show-deployment-info
+    runs-on: ubuntu-latest
+    environment: 
+      name: ${{ inputs.environment }}
+    
+    steps:
+      - name: Manual Approval Notice
+        run: |
+          echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+          echo "⚠️  MANUAL APPROVAL REQUIRED"
+          echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+          echo "🔐 Environment: ${{ inputs.environment }}"
+          echo "📦 Image to deploy: ${{ inputs.dockerhub_username }}/${{ inputs.docker_image }}:${{ inputs.image_tag }}"
+          echo "⏳ Waiting for approval through GitHub Environments..."
+          echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          fetch-depth: 0
+
+      - name: Verify Manifests Directory
+        run: |
+          echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+          echo "📂 VERIFYING MANIFESTS STRUCTURE"
+          echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+          
+          if [ ! -d "${{ inputs.manifests_path }}/${{ inputs.environment }}" ]; then
+            echo "❌ Error: Directory ${{ inputs.manifests_path }}/${{ inputs.environment }} not found!"
+            echo ""
+            echo "📋 Available structure:"
+            ls -la ${{ inputs.manifests_path }} || echo "❌ ${{ inputs.manifests_path }} directory not found"
+            echo ""
+            echo "💡 Expected structure:"
+            echo "   ${{ inputs.manifests_path }}/"
+            echo "   ├── dev/"
+            echo "   ├── staging/"
+            echo "   ├── pre/"
+            echo "   └── prod/"
+            echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+            exit 1
+          fi
+          
+          echo "✅ Directory found: ${{ inputs.manifests_path }}/${{ inputs.environment }}"
+          echo ""
+          echo "📋 Files in directory:"
+          ls -la ${{ inputs.manifests_path }}/${{ inputs.environment }}
+          echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+
+      - name: Update Image Tag in Manifests
+        id: update
+        run: |
+          echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+          echo "🔄 UPDATING IMAGE TAGS IN MANIFESTS"
+          echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+          
+          MANIFESTS_DIR="${{ inputs.manifests_path }}/${{ inputs.environment }}"
+          NEW_IMAGE="${{ inputs.dockerhub_username }}/${{ inputs.docker_image }}:${{ inputs.image_tag }}"
+          IMAGE_NAME="${{ inputs.dockerhub_username }}/${{ inputs.docker_image }}"
+          UPDATED_FILES=""
+          CHANGES_MADE=false
+          
+          echo "🔍 Searching for YAML files matching: ${{ inputs.manifest_file_pattern }}"
+          echo "📂 In directory: ${MANIFESTS_DIR}"
+          echo "🎯 Image to update: ${IMAGE_NAME}"
+          echo "🏷️  New tag: ${{ inputs.image_tag }}"
+          echo ""
+          
+          for file in ${MANIFESTS_DIR}/${{ inputs.manifest_file_pattern }}; do
+            if [ -f "$file" ]; then
+              echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+              echo "📄 Processing: $(basename $file)"
+              
+              if grep -q "${IMAGE_NAME}" "$file"; then
+                echo "   ✅ Image reference found"
+                echo "   📋 Current image line(s):"
+                grep "${IMAGE_NAME}" "$file" | sed 's/^/      /'
+                
+                sed -i.bak "s|image: ${IMAGE_NAME}:[^[:space:]]*|image: ${NEW_IMAGE}|g" "$file"
+                sed -i.bak "s|${IMAGE_NAME}:[^[:space:]]*|${NEW_IMAGE}|g" "$file"
+                
+                if ! cmp -s "$file" "$file.bak"; then
+                  echo "   ✅ File updated successfully"
+                  echo "   📋 New image line(s):"
+                  grep "${IMAGE_NAME}" "$file" | sed 's/^/      /'
+                  UPDATED_FILES="${UPDATED_FILES}$(basename $file) "
+                  CHANGES_MADE=true
+                  rm "$file.bak"
+                else
+                  echo "   ℹ️  No changes needed (already up to date)"
+                  rm "$file.bak"
+                fi
+              else
+                echo "   ⚠️  Image reference not found in this file"
+              fi
+            fi
+          done
+          
+          echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+          
+          if [ "$CHANGES_MADE" = true ]; then
+            echo "✅ MANIFEST UPDATE COMPLETED"
+            echo "📝 Updated files: ${UPDATED_FILES}"
+            echo "changes_made=true" >> $GITHUB_OUTPUT
+            echo "updated_files=${UPDATED_FILES}" >> $GITHUB_OUTPUT
+          else
+            echo "ℹ️  NO CHANGES MADE"
+            echo "   All manifests are already using tag: ${{ inputs.image_tag }}"
+            echo "changes_made=false" >> $GITHUB_OUTPUT
+          fi
+          echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+
+      - name: Configure Git
+        if: steps.update.outputs.changes_made == 'true'
+        run: |
+          git config --global user.name "${{ inputs.git_user_name }}"
+          git config --global user.email "${{ inputs.git_user_email }}"
+
+      - name: Commit and Push Changes
+        if: steps.update.outputs.changes_made == 'true'
+        run: |
+          echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+          echo "📤 COMMITTING AND PUSHING CHANGES"
+          echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+          
+          git add ${{ inputs.manifests_path }}/${{ inputs.environment }}
+          
+          COMMIT_MSG="${{ inputs.commit_message_prefix }} Update ${{ inputs.environment }} to ${{ inputs.image_tag }}
+
+          Environment: ${{ inputs.environment }}
+          Image: ${{ inputs.dockerhub_username }}/${{ inputs.docker_image }}
+          Tag: ${{ inputs.image_tag }}
+          Updated files: ${{ steps.update.outputs.updated_files }}
+          Approved by: ${{ github.actor }}
+          Workflow: ${{ github.workflow }}
+          Run: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+          
+          git commit -m "${COMMIT_MSG}"
+          
+          echo "✅ Changes committed"
+          echo ""
+          echo "📋 Commit details:"
+          git log -1 --stat
+          echo ""
+          
+          echo "⬆️  Pushing to remote..."
+          git push
+          
+          echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+          echo "✅ CHANGES PUSHED SUCCESSFULLY"
+          echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+          echo "🔄 ArgoCD will detect changes and deploy automatically"
+          echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+
+      - name: Deployment Summary
+        if: always()
+        run: |
+          echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+          echo "📊 DEPLOYMENT SUMMARY"
+          echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+          echo "🌍 Environment: ${{ inputs.environment }}"
+          echo "📦 Image: ${{ inputs.dockerhub_username }}/${{ inputs.docker_image }}:${{ inputs.image_tag }}"
+          echo "📝 Changes Made: ${{ steps.update.outputs.changes_made }}"
+          if [ "${{ steps.update.outputs.changes_made }}" = "true" ]; then
+            echo "📄 Updated Files: ${{ steps.update.outputs.updated_files }}"
+          fi
+          echo "👤 Approved by: ${{ github.actor }}"
+          echo "🕐 Timestamp: $(date -u +'%Y-%m-%d %H:%M:%S UTC')"
+          echo ""
+          echo "🔗 Workflow Run:"
+          echo "   ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+          echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+
+  # ═══════════════════════════════════════════════════════════
+  # 📊 JOB 4: NOTIFICACIÓN FINAL
+  # ═══════════════════════════════════════════════════════════
+  notify:
+    name: 📊 Final Notification
+    needs: [show-deployment-info, update-manifests-auto, update-manifests-manual]
+    if: always()
+    runs-on: ubuntu-latest
+    steps:
+      - name: Deployment Notification
+        run: |
+          echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+          echo "📊 GITOPS DEPLOYMENT COMPLETED"
+          echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+          echo "🌍 Environment: ${{ inputs.environment }}"
+          echo "📦 Image: ${{ inputs.dockerhub_username }}/${{ inputs.docker_image }}:${{ inputs.image_tag }}"
+          echo "📂 Manifests: ${{ inputs.manifests_path }}/${{ inputs.environment }}"
+          echo "👤 Executed by: ${{ github.actor }}"
+          echo "🕐 Timestamp: $(date -u +'%Y-%m-%d %H:%M:%S UTC')"
+          echo ""
+          echo "🔄 Next Steps:"
+          echo "   1. ✅ Manifests updated in repository"
+          echo "   2. 🔄 ArgoCD will detect changes"
+          echo "   3. 🚀 ArgoCD will sync and deploy automatically"
+          echo ""
+          echo "🔗 Resources:"
+          echo "   • Workflow: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+          echo "   • Docker Hub: https://hub.docker.com/r/${{ inputs.dockerhub_username }}/${{ inputs.docker_image }}/tags"
+          echo "   • Repository: ${{ github.server_url }}/${{ github.repository }}"
+          echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
