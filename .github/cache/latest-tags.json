@@ -1,25 +1,25 @@
 {
   "dockerhub_username": "dariasmoises979",
   "docker_image": "mi-aplicacion",
-  "build_timestamp": "2025-10-30 08:40:06 UTC",
-  "workflow_run_id": "18934727604",
-  "commit_sha": "d79740b0a310e314fc1cd7a375faa9a1b0c8c574",
+  "build_timestamp": "2025-10-30 09:05:54 UTC",
+  "workflow_run_id": "18935358732",
+  "commit_sha": "93bbaceabf62176cf1247c3bd49a7aed9a5643fc",
   "branch": "integration",
   "environments": {
     "pre": {
-      "tag": "pre-d79740b",
-      "full_image": "dariasmoises979/mi-aplicacion:pre-d79740b",
-      "short_sha": "d79740b"
+      "tag": "pre-93bbace",
+      "full_image": "dariasmoises979/mi-aplicacion:pre-93bbace",
+      "short_sha": "93bbace"
     },
     "staging": {
-      "tag": "staging-d79740b",
-      "full_image": "dariasmoises979/mi-aplicacion:staging-d79740b",
-      "short_sha": "d79740b"
+      "tag": "staging-93bbace",
+      "full_image": "dariasmoises979/mi-aplicacion:staging-93bbace",
+      "short_sha": "93bbace"
     },
     "pro": {
-      "tag": "pro-d79740b",
-      "full_image": "dariasmoises979/mi-aplicacion:pro-d79740b",
-      "short_sha": "d79740b"
+      "tag": "pro-93bbace",
+      "full_image": "dariasmoises979/mi-aplicacion:pro-93bbace",
+      "short_sha": "93bbace"
     }
   }
 }
