@@ -1,7 +1,7 @@
 {
   "dockerhub_username": "dariasmoises979",
   "docker_image": "mi-aplicacion",
-  "build_timestamp": "2025-10-30 09:05:54 UTC",
+  "build_timestamp": "2025-10-30 09:13:23 UTC",
   "workflow_run_id": "18935358732",
   "commit_sha": "93bbaceabf62176cf1247c3bd49a7aed9a5643fc",
   "branch": "integration",
