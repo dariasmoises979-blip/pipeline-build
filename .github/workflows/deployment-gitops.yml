@@ -2,6 +2,7 @@
 # 🚀 WORKFLOW REUSABLE: GitOps Deployment
 # Actualiza manifiestos YAML con nuevo tag de imagen
 # y hace push para que ArgoCD detecte y despliegue
+#deployments-gitops.yml
 ########################################
 
 name: Reusable GitOps Deployment
