@@ -1,0 +1,25 @@
+{
+  "dockerhub_username": "dariasmoises979",
+  "docker_image": "mi-aplicacion",
+  "build_timestamp": "2025-10-30 08:40:06 UTC",
+  "workflow_run_id": "18934727604",
+  "commit_sha": "d79740b0a310e314fc1cd7a375faa9a1b0c8c574",
+  "branch": "integration",
+  "environments": {
+    "pre": {
+      "tag": "pre-d79740b",
+      "full_image": "dariasmoises979/mi-aplicacion:pre-d79740b",
+      "short_sha": "d79740b"
+    },
+    "staging": {
+      "tag": "staging-d79740b",
+      "full_image": "dariasmoises979/mi-aplicacion:staging-d79740b",
+      "short_sha": "d79740b"
+    },
+    "pro": {
+      "tag": "pro-d79740b",
+      "full_image": "dariasmoises979/mi-aplicacion:pro-d79740b",
+      "short_sha": "d79740b"
+    }
+  }
+}
