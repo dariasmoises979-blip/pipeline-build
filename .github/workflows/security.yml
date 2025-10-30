@@ -9,6 +9,11 @@ name: DockerHub Security & Performance Analysis
 on:
   workflow_call:
     inputs:
+      artifact_name:  
+        description: 'Nombre único para el artifact de seguridad'
+        required: false
+        type: string
+        default: ''
       image_name:
         description: "Nombre completo de la imagen en DockerHub (ej: usuario/imagen)"
         required: true
@@ -293,18 +298,27 @@ jobs:
             echo "" >> $GITHUB_STEP_SUMMARY
           fi
 
-      - name: 📤 Subir reportes como artefactos
+      - name: Determine artifact name
+        id: artifact
+        run: |
+            if [ -n "${{ inputs.artifact_name }}" ]; then
+              ARTIFACT_NAME="${{ inputs.artifact_name }}"
+            else
+              ARTIFACT_NAME="security-reports-${{ inputs.image_tag }}-${{ github.run_id }}"
+            fi
+            echo "artifact_name=${ARTIFACT_NAME}" >> $GITHUB_OUTPUT
+
+      - name: Upload Security Reports
         uses: actions/upload-artifact@v4
         if: always()
-        continue-on-error: true
         with:
-            name: security-reports-${{ inputs.image_tag }}
+            name: ${{ steps.artifact.outputs.artifact_name }}  # 🆕 CAMBIAR ESTO
             path: |
               trivy-results.sarif
-              trivy-report.json
-              dockle-report.txt
+              trivy-report-${{ inputs.image_tag }}.json
+              dockle-report-${{ inputs.image_tag }}.json
+              dockle-report-${{ inputs.image_tag }}.txt
             retention-days: 30
-            if-no-files-found: warn
 
   # ═══════════════════════════════════════════════════════════
   # ⚙️ JOB 4: ANÁLISIS DE RENDIMIENTO Y OPTIMIZACIÓN
