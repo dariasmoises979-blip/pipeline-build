@@ -607,7 +607,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 15
     needs: [setup, test-unit, test-lint]
-    if: ${{ secrets.SONAR_TOKEN != '' }}
+   
 
     steps:
       - name: 💾 Descargar artefacto del código
