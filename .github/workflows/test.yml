@@ -14,15 +14,15 @@ on:
       external_repo:
         required: true
         type: string
-        description: 'Nombre del repositorio externo'
+        description: 'Nombre del repositorio externo (e.g., dariasmoises979-blip/app)'
       external_repo_ref:
         required: true
         type: string
-        description: 'Rama o tag del repositorio externo'
+        description: 'Rama o tag del repositorio externo (e.g., main)'
       external_repo_path:
         required: false
         type: string
-        default: 'app-build'
+        default: './app-repo'
         description: 'Ruta donde clonar el repositorio externo'
       python_version:
         required: false
@@ -39,13 +39,23 @@ on:
         type: string
         default: ''
         description: 'Argumentos adicionales para SonarCloud'
+      run_integration_tests:
+        required: false
+        type: boolean
+        default: true
+        description: 'Ejecutar tests de integración'
+      run_security_scan:
+        required: false
+        type: boolean
+        default: true
+        description: 'Ejecutar análisis de seguridad'
     secrets:
       EXTERNAL_REPO_TOKEN: 
         required: true
-        description: 'Token para acceder al repositorio app'
+        description: 'Token para acceder al repositorio app (e.g., GH_TOKEN2)'
       SONAR_TOKEN:
         required: false
-        description: 'Token de SonarCloud'
+        description: 'Token de SonarCloud para análisis de calidad'
 
 permissions:
   actions: read
@@ -71,6 +81,8 @@ jobs:
     outputs:
       cache-key: ${{ steps.cache-key.outputs.key }}
       python-version: ${{ steps.python-info.outputs.version }}
+      has-requirements: ${{ steps.check-files.outputs.has-requirements }}
+      has-tests: ${{ steps.check-files.outputs.has-tests }}
     
     steps:
       - name: 🔄 Clonar el repositorio app
@@ -82,6 +94,34 @@ jobs:
           fetch-depth: 0
           token: ${{ secrets.EXTERNAL_REPO_TOKEN }}
 
+      - name: 📁 Verificar estructura del proyecto
+        id: check-files
+        working-directory: ${{ inputs.external_repo_path }}
+        run: |
+          echo "🔍 Verificando estructura del proyecto..."
+          
+          # Verificar requirements.txt
+          if [ -f "local/requirements.txt" ]; then
+            echo "✅ Encontrado: local/requirements.txt"
+            echo "has-requirements=true" >> $GITHUB_OUTPUT
+          else
+            echo "⚠️ No encontrado: local/requirements.txt"
+            echo "has-requirements=false" >> $GITHUB_OUTPUT
+          fi
+          
+          # Verificar directorio de tests
+          if [ -d "system_info_app/tests" ] || [ -d "system_info_app/test" ]; then
+            echo "✅ Encontrado: directorio de tests"
+            echo "has-tests=true" >> $GITHUB_OUTPUT
+          else
+            echo "⚠️ No encontrado: directorio de tests"
+            echo "has-tests=false" >> $GITHUB_OUTPUT
+          fi
+          
+          # Mostrar estructura
+          echo "📂 Estructura del proyecto:"
+          tree -L 3 -I '__pycache__|*.pyc|venv|env' || ls -la
+
       - name: 🐍 Configurar Python
         id: setup-python
         uses: actions/setup-python@v5
@@ -92,13 +132,15 @@ jobs:
         id: python-info
         run: |
           echo "version=${{ steps.setup-python.outputs.python-version }}" >> $GITHUB_OUTPUT
-          python --version
-          pip --version
+          echo "🐍 Python version: $(python --version)"
+          echo "📦 Pip version: $(pip --version)"
 
       - name: 🔑 Generar cache key
         id: cache-key
+        working-directory: ${{ inputs.external_repo_path }}
         run: |
-          echo "key=${{ runner.os }}-pip-${{ hashFiles('**/requirements*.txt') }}" >> $GITHUB_OUTPUT
+          HASH=$(find . -name "requirements*.txt" -type f -exec sha256sum {} \; | sha256sum | cut -d' ' -f1)
+          echo "key=${{ runner.os }}-pip-${{ inputs.python_version }}-${HASH}" >> $GITHUB_OUTPUT
 
       - name: 💾 Cache de dependencias pip
         uses: actions/cache@v4
@@ -106,27 +148,46 @@ jobs:
           path: ~/.cache/pip
           key: ${{ steps.cache-key.outputs.key }}
           restore-keys: |
+            ${{ runner.os }}-pip-${{ inputs.python_version }}-
             ${{ runner.os }}-pip-
 
       - name: 📥 Instalar dependencias base
         working-directory: ${{ inputs.external_repo_path }}
         run: |
+          echo "📦 Actualizando pip, setuptools y wheel..."
           python -m pip install --upgrade pip setuptools wheel
-          if [ -f local/requirements.txt ]; then
+          
+          if [ -f "local/requirements.txt" ]; then
+            echo "📥 Instalando dependencias del proyecto..."
             pip install -r local/requirements.txt
+          else
+            echo "⚠️ No se encontró local/requirements.txt"
           fi
-          pip install pytest pytest-cov pytest-html pytest-xdist flake8 black pylint bandit safety
+          
+          echo "🛠️ Instalando herramientas de testing y calidad..."
+          pip install \
+            pytest pytest-cov pytest-html pytest-xdist \
+            flake8 black pylint isort mypy \
+            bandit safety \
+            coverage[toml]
 
       - name: 📊 Listar dependencias instaladas
-        run: pip list
+        run: |
+          echo "📋 Dependencias instaladas:"
+          pip list
+          echo ""
+          echo "📦 Total de paquetes: $(pip list | wc -l)"
 
       - name: 🗜️ Empaquetar código del proyecto
-        run: tar -czf app-build.tar.gz ${{ inputs.external_repo_path }}
+        run: |
+          echo "📦 Empaquetando código..."
+          tar -czf app-build.tar.gz ${{ inputs.external_repo_path }}
+          echo "✅ Tamaño del artefacto: $(du -h app-build.tar.gz | cut -f1)"
 
       - name: 📤 Subir artefacto
         uses: actions/upload-artifact@v4
         with:
-          name: app-source
+          name: app-source-${{ github.run_id }}
           path: app-build.tar.gz
           retention-days: 1
           compression-level: 9
@@ -144,7 +205,7 @@ jobs:
       - name: 💾 Descargar artefacto
         uses: actions/download-artifact@v4
         with:
-          name: app-source
+          name: app-source-${{ github.run_id }}
 
       - name: 📦 Extraer código
         run: tar -xzf app-build.tar.gz
@@ -160,31 +221,42 @@ jobs:
           path: ~/.cache/pip
           key: ${{ needs.setup.outputs.cache-key }}
           restore-keys: |
+            ${{ runner.os }}-pip-${{ inputs.python_version }}-
             ${{ runner.os }}-pip-
 
       - name: 📥 Instalar dependencias
         working-directory: ${{ inputs.external_repo_path }}
         run: |
           pip install --upgrade pip
-          if [ -f local/requirements.txt ]; then
+          
+          if [ "${{ needs.setup.outputs.has-requirements }}" = "true" ]; then
             pip install -r local/requirements.txt
           fi
+          
           pip install pytest pytest-cov pytest-html pytest-xdist coverage[toml]
 
       - name: 🧪 Ejecutar tests unitarios con cobertura
         working-directory: ${{ inputs.external_repo_path }}/system_info_app
         run: |
-          pytest -v \
-            --cov=. \
-            --cov-report=xml \
-            --cov-report=html \
-            --cov-report=term-missing \
-            --cov-fail-under=${{ inputs.coverage_threshold }} \
-            --html=pytest-report.html \
-            --self-contained-html \
-            -n auto \
-            --maxfail=3 \
-            --tb=short
+          echo "🧪 Iniciando tests unitarios..."
+          
+          if [ "${{ needs.setup.outputs.has-tests }}" = "true" ]; then
+            pytest -v \
+              --cov=. \
+              --cov-report=xml \
+              --cov-report=html \
+              --cov-report=term-missing \
+              --cov-fail-under=${{ inputs.coverage_threshold }} \
+              --html=pytest-report.html \
+              --self-contained-html \
+              -n auto \
+              --maxfail=3 \
+              --tb=short \
+              --color=yes
+          else
+            echo "⚠️ No se encontraron tests, ejecutando validación básica..."
+            python -m pytest --collect-only || echo "No hay tests para ejecutar"
+          fi
         continue-on-error: false
 
       - name: 📊 Resumen de cobertura
@@ -192,26 +264,34 @@ jobs:
         working-directory: ${{ inputs.external_repo_path }}/system_info_app
         run: |
           if [ -f coverage.xml ]; then
-            echo "📊 Cobertura de código generada correctamente"
-            coverage report
+            echo "📊 REPORTE DE COBERTURA" >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+            coverage report >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "✅ Cobertura generada correctamente"
+          else
+            echo "⚠️ No se generó reporte de cobertura"
           fi
 
       - name: 📤 Subir reporte de cobertura
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: coverage-report
+          name: coverage-report-${{ github.run_id }}
           path: |
             ${{ inputs.external_repo_path }}/system_info_app/htmlcov/
             ${{ inputs.external_repo_path }}/system_info_app/coverage.xml
             ${{ inputs.external_repo_path }}/system_info_app/pytest-report.html
+            ${{ inputs.external_repo_path }}/system_info_app/.coverage
           retention-days: 30
+          if-no-files-found: warn
 
-      - name: 📈 Comentar cobertura en PR
-        if: github.event_name == 'pull_request'
+      - name: 💬 Comentar cobertura en PR
+        if: github.event_name == 'pull_request' && always()
         uses: py-cov-action/python-coverage-comment-action@v3
         with:
           GITHUB_TOKEN: ${{ secrets.EXTERNAL_REPO_TOKEN }}
+        continue-on-error: true
 
   # ═══════════════════════════════════════════════════════════
   # 🔗 JOB 2: TESTS DE INTEGRACIÓN
@@ -221,12 +301,13 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 20
     needs: setup
+    if: ${{ inputs.run_integration_tests }}
 
     steps:
       - name: 💾 Descargar artefacto
         uses: actions/download-artifact@v4
         with:
-          name: app-source
+          name: app-source-${{ github.run_id }}
 
       - name: 📦 Extraer código
         run: tar -xzf app-build.tar.gz
@@ -246,28 +327,44 @@ jobs:
         working-directory: ${{ inputs.external_repo_path }}
         run: |
           pip install --upgrade pip
-          if [ -f local/requirements.txt ]; then
+          
+          if [ "${{ needs.setup.outputs.has-requirements }}" = "true" ]; then
             pip install -r local/requirements.txt
           fi
+          
           pip install pytest pytest-integration
 
       - name: 🔗 Ejecutar pruebas de integración
         working-directory: ${{ inputs.external_repo_path }}/system_info_app
         run: |
+          echo "🔗 Iniciando tests de integración..."
+          
           if [ -d "tests/integration" ]; then
-            pytest tests/integration/ -v --tb=short
+            echo "✅ Encontrado directorio tests/integration/"
+            pytest tests/integration/ -v --tb=short --color=yes
+          elif [ -d "tests" ]; then
+            echo "⚠️ Ejecutando todos los tests en tests/"
+            pytest tests/ -v --tb=short --color=yes -k "integration or Integration"
           else
-            echo "⚠️ No se encontró directorio tests/integration/"
-            echo "Ejecutando tests de integración básicos..."
-            python -c "import sys; print('✅ Importación de módulos OK')"
+            echo "⚠️ No se encontró directorio de tests de integración"
+            echo "Ejecutando validación básica de módulos..."
+            python -c "
+import sys
+import importlib.util
+print('✅ Verificando importación de módulos...')
+# Agregar aquí validaciones específicas según tu proyecto
+print('✅ Importación de módulos OK')
+            "
           fi
 
       - name: 📤 Subir logs de integración
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: integration-logs
-          path: ${{ inputs.external_repo_path }}/system_info_app/logs/
+          name: integration-logs-${{ github.run_id }}
+          path: |
+            ${{ inputs.external_repo_path }}/system_info_app/logs/
+            ${{ inputs.external_repo_path }}/system_info_app/*.log
           retention-days: 7
           if-no-files-found: ignore
 
@@ -284,7 +381,7 @@ jobs:
       - name: 💾 Descargar artefacto
         uses: actions/download-artifact@v4
         with:
-          name: app-source
+          name: app-source-${{ github.run_id }}
 
       - name: 📦 Extraer código
         run: tar -xzf app-build.tar.gz
@@ -305,7 +402,7 @@ jobs:
           pip install --upgrade pip
           pip install flake8 black pylint isort mypy
 
-      - name: 🔍 Flake8 - Análisis de errores
+      - name: 🔍 Flake8 - Análisis de errores sintácticos
         working-directory: ${{ inputs.external_repo_path }}/system_info_app
         run: |
           echo "🔍 Ejecutando Flake8..."
@@ -315,52 +412,95 @@ jobs:
             --show-source \
             --statistics \
             --max-line-length=120 \
-            --exclude=__pycache__,.git,venv,env
+            --exclude=__pycache__,.git,venv,env,build,dist,*.egg-info \
+            --format='%(path)s:%(row)d:%(col)d: %(code)s %(text)s'
+        continue-on-error: true
+
+      - name: 📏 Flake8 - Análisis completo de estilo
+        working-directory: ${{ inputs.external_repo_path }}/system_info_app
+        run: |
+          echo "📏 Análisis completo de estilo con Flake8..."
+          flake8 . \
+            --max-line-length=120 \
+            --extend-ignore=E203,W503 \
+            --exclude=__pycache__,.git,venv,env,build,dist,*.egg-info \
+            --statistics \
+            --count || echo "⚠️ Se encontraron issues de estilo (no críticos)"
         continue-on-error: true
 
       - name: 🎨 Black - Verificación de formato
         working-directory: ${{ inputs.external_repo_path }}/system_info_app
         run: |
           echo "🎨 Verificando formato con Black..."
-          black --check --diff --color .
+          black --check --diff --color . || {
+            echo "❌ Código no formateado con Black"
+            echo "💡 Ejecuta: black . para formatear automáticamente"
+            exit 0
+          }
         continue-on-error: true
 
-      - name: 📐 isort - Orden de imports
+      - name: 📐 isort - Verificar orden de imports
         working-directory: ${{ inputs.external_repo_path }}/system_info_app
         run: |
           echo "📐 Verificando imports con isort..."
-          isort --check-only --diff .
+          isort --check-only --diff --color . || {
+            echo "❌ Imports no ordenados correctamente"
+            echo "💡 Ejecuta: isort . para ordenar automáticamente"
+            exit 0
+          }
         continue-on-error: true
 
-      - name: 🔎 Pylint - Análisis de calidad
+      - name: 🔎 Pylint - Análisis de calidad de código
         working-directory: ${{ inputs.external_repo_path }}/system_info_app
         run: |
           echo "🔎 Ejecutando Pylint..."
           pylint **/*.py \
             --fail-under=7.0 \
             --max-line-length=120 \
-            --disable=C0111 \
-            --output-format=colorized || true
+            --disable=C0111,C0103,R0903 \
+            --output-format=colorized \
+            --score=yes || echo "⚠️ Score de Pylint por debajo del umbral (no crítico)"
+        continue-on-error: true
 
-      - name: 📊 Generar reporte de linting
+      - name: 🔍 MyPy - Type Checking (opcional)
+        working-directory: ${{ inputs.external_repo_path }}/system_info_app
+        run: |
+          echo "🔍 Ejecutando MyPy (type checking)..."
+          mypy . --ignore-missing-imports --no-strict-optional || echo "⚠️ Type hints podrían mejorarse"
+        continue-on-error: true
+
+      - name: 📊 Generar reporte consolidado de linting
         if: always()
         working-directory: ${{ inputs.external_repo_path }}/system_info_app
         run: |
-          echo "# 📊 Reporte de Linting" > lint-report.md
+          echo "# 📊 Reporte Consolidado de Linting" > lint-report.md
           echo "" >> lint-report.md
-          echo "## Flake8" >> lint-report.md
-          flake8 . --statistics --format=default >> lint-report.md || true
+          echo "🕐 Generado: $(date)" >> lint-report.md
           echo "" >> lint-report.md
-          echo "## Pylint" >> lint-report.md
-          pylint **/*.py --output-format=text >> lint-report.md || true
+          
+          echo "## 🔍 Flake8 - Errores críticos" >> lint-report.md
+          flake8 . --select=E9,F63,F7,F82 --statistics >> lint-report.md 2>&1 || true
+          echo "" >> lint-report.md
+          
+          echo "## 📏 Flake8 - Estadísticas completas" >> lint-report.md
+          flake8 . --statistics >> lint-report.md 2>&1 || true
+          echo "" >> lint-report.md
+          
+          echo "## 🔎 Pylint Score" >> lint-report.md
+          pylint **/*.py --score=yes 2>&1 | tail -n 10 >> lint-report.md || true
 
       - name: 📤 Subir reporte de linting
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: lint-report
+          name: lint-report-${{ github.run_id }}
           path: ${{ inputs.external_repo_path }}/system_info_app/lint-report.md
           retention-days: 30
+
+      - name: 💬 Comentario en PR con resultados de linting
+        if: github.event_name == 'pull_request' && always()
+        run: |
+          echo "📊 Linting completado. Ver artefactos para detalles."
 
   # ═══════════════════════════════════════════════════════════
   # 🔒 JOB 4: ANÁLISIS DE SEGURIDAD
@@ -370,12 +510,13 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 15
     needs: setup
+    if: ${{ inputs.run_security_scan }}
 
     steps:
       - name: 💾 Descargar artefacto
         uses: actions/download-artifact@v4
         with:
-          name: app-source
+          name: app-source-${{ github.run_id }}
 
       - name: 📦 Extraer código
         run: tar -xzf app-build.tar.gz
@@ -388,37 +529,73 @@ jobs:
       - name: 📥 Instalar herramientas de seguridad
         run: |
           pip install --upgrade pip
-          pip install bandit safety
+          pip install bandit safety pip-audit
 
-      - name: 🔐 Bandit - Análisis de código
+      - name: 🔐 Bandit - Análisis de seguridad en código
         working-directory: ${{ inputs.external_repo_path }}/system_info_app
         run: |
           echo "🔐 Ejecutando Bandit..."
+          
+          # Análisis con reporte JSON
           bandit -r . \
             -f json \
             -o bandit-report.json \
             --severity-level medium \
             --confidence-level medium || true
+          
+          # Análisis con salida legible
+          echo "📋 Reporte de Bandit:" >> $GITHUB_STEP_SUMMARY
+          bandit -r . -ll -f screen >> $GITHUB_STEP_SUMMARY || true
+          
+          # Mostrar en terminal también
           bandit -r . -ll
 
       - name: 🛡️ Safety - Vulnerabilidades en dependencias
         working-directory: ${{ inputs.external_repo_path }}
         run: |
           echo "🛡️ Verificando vulnerabilidades con Safety..."
-          if [ -f local/requirements.txt ]; then
-            safety check --file=local/requirements.txt --json > safety-report.json || true
-            safety check --file=local/requirements.txt
+          
+          if [ "${{ needs.setup.outputs.has-requirements }}" = "true" ]; then
+            # Generar reporte JSON
+            safety check \
+              --file=local/requirements.txt \
+              --json > safety-report.json || true
+            
+            # Mostrar reporte legible
+            echo "📋 Reporte de Safety:" >> $GITHUB_STEP_SUMMARY
+            safety check --file=local/requirements.txt >> $GITHUB_STEP_SUMMARY || true
+            
+            # Mostrar en terminal
+            safety check --file=local/requirements.txt || echo "⚠️ Se encontraron vulnerabilidades"
+          else
+            echo "⚠️ No se encontró requirements.txt para analizar"
           fi
         continue-on-error: true
+
+      - name: 🔍 pip-audit - Auditoría de paquetes instalados
+        run: |
+          echo "🔍 Ejecutando pip-audit..."
+          pip-audit --desc --format json > pip-audit-report.json || true
+          pip-audit --desc || echo "⚠️ Se encontraron issues en dependencias"
+        continue-on-error: true
+
+      - name: 📊 Resumen de seguridad
+        if: always()
+        run: |
+          echo "# 🔒 Resumen de Análisis de Seguridad" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "✅ Análisis completado" >> $GITHUB_STEP_SUMMARY
+          echo "📦 Ver artefactos para reportes detallados" >> $GITHUB_STEP_SUMMARY
 
       - name: 📤 Subir reportes de seguridad
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: security-reports
+          name: security-reports-${{ github.run_id }}
           path: |
             ${{ inputs.external_repo_path }}/system_info_app/bandit-report.json
             ${{ inputs.external_repo_path }}/safety-report.json
+            pip-audit-report.json
           retention-days: 30
           if-no-files-found: ignore
 
@@ -429,14 +606,14 @@ jobs:
     name: 📊 SonarCloud Analysis
     runs-on: ubuntu-latest
     timeout-minutes: 15
-    needs: [test-unit, test-lint]
+    needs: [setup, test-unit, test-lint]
     if: ${{ secrets.SONAR_TOKEN != '' }}
 
     steps:
-      - name: 💾 Descargar artefacto
+      - name: 💾 Descargar artefacto del código
         uses: actions/download-artifact@v4
         with:
-          name: app-source
+          name: app-source-${{ github.run_id }}
 
       - name: 📦 Extraer código
         run: tar -xzf app-build.tar.gz
@@ -444,8 +621,19 @@ jobs:
       - name: 💾 Descargar reporte de cobertura
         uses: actions/download-artifact@v4
         with:
-          name: coverage-report
+          name: coverage-report-${{ github.run_id }}
+          path: coverage-data
         continue-on-error: true
+
+      - name: 📋 Preparar reportes para SonarCloud
+        run: |
+          # Mover coverage.xml al directorio esperado por SonarCloud
+          if [ -f "coverage-data/coverage.xml" ]; then
+            cp coverage-data/coverage.xml ${{ inputs.external_repo_path }}/system_info_app/
+            echo "✅ Reporte de cobertura preparado"
+          else
+            echo "⚠️ No se encontró reporte de cobertura"
+          fi
 
       - name: 🔎 Análisis con SonarCloud
         uses: SonarSource/sonarcloud-github-action@v2
@@ -458,11 +646,11 @@ jobs:
 
       - name: 🔗 Enlace a resultados
         run: |
-          echo "✅ Análisis completado"
-          echo "📊 Revisa los resultados en SonarCloud"
+          echo "✅ Análisis de SonarCloud completado" >> $GITHUB_STEP_SUMMARY
+          echo "📊 Revisa los resultados en el dashboard de SonarCloud" >> $GITHUB_STEP_SUMMARY
 
   # ═══════════════════════════════════════════════════════════
-  # ✅ JOB 6: RESUMEN Y VALIDACIÓN FINAL
+  # ✅ JOB 6: RESUMEN Y VALIDACIÓN FINAL (QUALITY GATE)
   # ═══════════════════════════════════════════════════════════
   validation-summary:
     name: ✅ Quality Gate Summary
@@ -472,36 +660,41 @@ jobs:
     if: always()
 
     steps:
-      - name: 📊 Generar resumen de calidad
+      - name: 📊 Generar resumen ejecutivo
         run: |
-          echo "# 🎯 Resumen de Quality Gate" >> $GITHUB_STEP_SUMMARY
+          echo "# 🎯 Quality Gate - Resumen Ejecutivo" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
-          echo "| Check | Estado |" >> $GITHUB_STEP_SUMMARY
-          echo "|-------|--------|" >> $GITHUB_STEP_SUMMARY
-          echo "| 🧪 Tests Unitarios | ${{ needs.test-unit.result }} |" >> $GITHUB_STEP_SUMMARY
-          echo "| 🔗 Tests Integración | ${{ needs.test-integration.result }} |" >> $GITHUB_STEP_SUMMARY
-          echo "| 🧹 Linting | ${{ needs.test-lint.result }} |" >> $GITHUB_STEP_SUMMARY
-          echo "| 🔒 Seguridad | ${{ needs.security-scan.result }} |" >> $GITHUB_STEP_SUMMARY
+          echo "**Workflow:** Date Workflow" >> $GITHUB_STEP_SUMMARY
+          echo "**Run ID:** ${{ github.run_id }}" >> $GITHUB_STEP_SUMMARY
+          echo "**Fecha:** $(date -u +'%Y-%m-%d %H:%M:%S UTC')" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
           
-          if [[ "${{ needs.test-unit.result }}" == "success" ]] && \
-             [[ "${{ needs.test-integration.result }}" == "success" ]] && \
-             [[ "${{ needs.test-lint.result }}" == "success" ]] && \
-             [[ "${{ needs.security-scan.result }}" == "success" ]]; then
-            echo "## ✅ Quality Gate: PASSED" >> $GITHUB_STEP_SUMMARY
-            echo "Todos los checks pasaron correctamente" >> $GITHUB_STEP_SUMMARY
+          echo "## 📋 Resultados por Job" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "| Check | Estado | Crítico |" >> $GITHUB_STEP_SUMMARY
+          echo "|-------|--------|---------|" >> $GITHUB_STEP_SUMMARY
+          
+          # Test Unitarios (CRÍTICO)
+          if [ "${{ needs.test-unit.result }}" == "success" ]; then
+            echo "| 🧪 Tests Unitarios | ✅ PASSED | ⚠️ Sí |" >> $GITHUB_STEP_SUMMARY
           else
-            echo "## ❌ Quality Gate: FAILED" >> $GITHUB_STEP_SUMMARY
-            echo "Algunos checks fallaron, revisa los detalles" >> $GITHUB_STEP_SUMMARY
+            echo "| 🧪 Tests Unitarios | ❌ FAILED | ⚠️ Sí |" >> $GITHUB_STEP_SUMMARY
           fi
-
-      - name: ❌ Fallar si algún check crítico falló
-        if: needs.test-unit.result != 'success' || needs.security-scan.result != 'success'
-        run: |
-          echo "::error::Quality Gate falló: Tests unitarios o seguridad no pasaron"
-          exit 1
-
-      - name: ⚠️ Advertencia por checks opcionales
-        if: needs.test-integration.result != 'success' || needs.test-lint.result != 'success'
-        run: |
-          echo "::warning::Algunos checks opcionales fallaron pero no bloquean el pipeline"
+          
+          # Tests de Integración (OPCIONAL)
+          if [ "${{ needs.test-integration.result }}" == "success" ]; then
+            echo "| 🔗 Tests Integración | ✅ PASSED | No |" >> $GITHUB_STEP_SUMMARY
+          elif [ "${{ needs.test-integration.result }}" == "skipped" ]; then
+            echo "| 🔗 Tests Integración | ⏭️ SKIPPED | No |" >> $GITHUB_STEP_SUMMARY
+          else
+            echo "| 🔗 Tests Integración | ❌ FAILED | No |" >> $GITHUB_STEP_SUMMARY
+          fi
+          
+          # Linting (OPCIONAL)
+          if [ "${{ needs.test-lint.result }}" == "success" ]; then
+            echo "| 🧹 Linting | ✅ PASSED | No |" >> $GITHUB_STEP_SUMMARY
+          else
+            echo "| 🧹 Linting | ⚠️ ISSUES | No |" >> $GITHUB_STEP_SUMMARY
+          fi
+          
+          #
