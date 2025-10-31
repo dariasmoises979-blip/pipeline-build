@@ -114,13 +114,13 @@ jobs:
             echo "has-requirements=false" >> $GITHUB_OUTPUT
           fi
           
-          # Verificar directorio de tests
-          if [ -d "system_info_app/tests" ] || [ -d "system_info_app/test" ]; then
-            echo "✅ Encontrado: directorio de tests"
-            echo "has-tests=true" >> $GITHUB_OUTPUT
+          # Verificar directorio de system_info_app
+          if [ -d "system_info_app" ] || [ -d "system_info_app/test" ]; then
+            echo "✅ Encontrado: directorio de system_info_app"
+            echo "has-system_info_app=true" >> $GITHUB_OUTPUT
           else
-            echo "⚠️ No encontrado: directorio de tests"
-            echo "has-tests=false" >> $GITHUB_OUTPUT
+            echo "⚠️ No encontrado: directorio de system_info_app"
+            echo "has-system_info_app=false" >> $GITHUB_OUTPUT
           fi
           
           # Mostrar estructura
@@ -245,7 +245,7 @@ jobs:
         run: |
           echo "🧪 Iniciando tests unitarios..."
           
-          if [ "${{ needs.setup.outputs.has-tests }}" = "true" ]; then
+          if [ "${{ needs.setup.outputs.has-system_info_app }}" = "true" ]; then
             pytest -v \
               --cov=. \
               --cov-report=xml \
@@ -259,8 +259,8 @@ jobs:
               --tb=short \
               --color=yes
           else
-            echo "⚠️ No se encontraron tests, ejecutando validación básica..."
-            python -m pytest --collect-only || echo "✅ No hay tests configurados aún"
+            echo "⚠️ No se encontraron system_info_app, ejecutando validación básica..."
+            python -m pytest --collect-only || echo "✅ No hay system_info_app configurados aún"
           fi
         continue-on-error: false
 
@@ -342,11 +342,11 @@ jobs:
           if [ -d "system_info_app" ]; then
             echo "✅ Encontrado directorio system_info_app/"
             pytest system_info_app/ -v --tb=short --color=yes
-          elif [ -d "tests" ]; then
-            echo "⚠️ Ejecutando tests marcados como integración..."
-            pytest tests/ -v --tb=short --color=yes -k "integration or Integration" || echo "ℹ️ No se encontraron tests de integración"
+          elif [ -d "system_info_app" ]; then
+            echo "⚠️ Ejecutando system_info_app marcados como integración..."
+            pytest system_info_app/ -v --tb=short --color=yes -k "integration or Integration" || echo "ℹ️ No se encontraron system_info_app de integración"
           else
-            echo "⚠️ No se encontró directorio de tests"
+            echo "⚠️ No se encontró directorio de system_info_app"
             echo "✅ Comprueba que cada función o módulo funciona correctamente en conjunto"
             python -c "
               import sys
@@ -737,4 +737,4 @@ jobs:
         if: (needs.test-integration.result != 'success' && needs.test-integration.result != 'skipped') || needs.test-lint.result != 'success'
         run: |
           echo "::warning::Algunos checks opcionales fallaron pero no bloquean el pipeline"
-          echo "::notice::Considera revisar los issues de linting o tests de integración para mejorar la calidad del código"
+          echo "::notice::Considera revisar los issues de linting o system_info_app de integración para mejorar la calidad del código"
