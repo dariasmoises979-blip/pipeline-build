@@ -2,6 +2,7 @@
 # 🧪 WORKFLOW REUSABLE: Date Workflow
 # Ejecuta pruebas unitarias, de integración, lint y análisis de calidad.
 # Pensado para reutilizar en pipelines automatizados.
+#test.yml
 ########################################
 
 name: Reusable Date Workflow

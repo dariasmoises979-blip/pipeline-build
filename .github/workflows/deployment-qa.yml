@@ -2,6 +2,7 @@
 # 🔄 WORKFLOW REUSABLE: Find Latest Image & Update K8s
 # Busca la última imagen en Docker Hub creada por el pipeline
 # y actualiza los manifiestos de Kubernetes automáticamente
+# deployment-qa.yml
 ########################################
 
 name: Reusable Find & Update K8s Images

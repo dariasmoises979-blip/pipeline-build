@@ -2,6 +2,7 @@
 # 🔄 WORKFLOW REUSABLE: Date Workflow
 # Ejecuta análisis de integración y validaciones básicas.
 # Diseñado para ser invocado desde otros workflows.
+# integration.yml
 ########################################
 
 name: Reusable Date Workflow
