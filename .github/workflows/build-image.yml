@@ -3,7 +3,7 @@
 # Construye y publica imágenes Docker con tags automáticos
 # basados en el entorno (pro, pre, staging) y commit SHA
 # 🆕 DEVUELVE EL TAG GENERADO COMO OUTPUT
-#build-image.yml
+# build-image.yml
 ########################################
 
 name: Reusable Build & Push Docker

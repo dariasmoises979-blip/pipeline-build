@@ -2,6 +2,7 @@
 # 🛡️ WORKFLOW REUSABLE: Security & Performance Analysis
 # Escanea imágenes DIRECTAMENTE desde DockerHub
 # Analiza seguridad, vulnerabilidades, código y rendimiento
+# security.yml
 ########################################
 
 name: DockerHub Security & Performance Analysis

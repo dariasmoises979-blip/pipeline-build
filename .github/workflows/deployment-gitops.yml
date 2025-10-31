@@ -2,7 +2,7 @@
 # 🚀 WORKFLOW REUSABLE: GitOps Deployment
 # Actualiza manifiestos YAML en kubernetes/{environment}
 # Compatible con estructura: kubernetes/pre, kubernetes/staging, kubernetes/pro
-#deployment-gitops.yml
+# deployment-gitops.yml
 ########################################
 
 name: Reusable GitOps Deployment
