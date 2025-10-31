@@ -339,9 +339,9 @@ jobs:
         run: |
           echo "🔗 Iniciando tests de integración..."
           
-          if [ -d "tests/integration" ]; then
-            echo "✅ Encontrado directorio tests/integration/"
-            pytest tests/integration/ -v --tb=short --color=yes
+          if [ -d "system_info_app" ]; then
+            echo "✅ Encontrado directorio system_info_app/"
+            pytest system_info_app/ -v --tb=short --color=yes
           elif [ -d "tests" ]; then
             echo "⚠️ Ejecutando tests marcados como integración..."
             pytest tests/ -v --tb=short --color=yes -k "integration or Integration" || echo "ℹ️ No se encontraron tests de integración"
