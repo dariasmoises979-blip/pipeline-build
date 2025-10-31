@@ -335,32 +335,33 @@ jobs:
           pip install pytest
 
       - name: 🔗 Ejecutar pruebas de integración
-        working-directory: ${{ inputs.external_repo_path }}/system_info_app
+        working-directory: ${{ inputs.external_repo_path }}
         run: |
-          echo "🔗 Iniciando tests de integración..."
-          
-          if [ -d "system_info_app" ]; then
-            echo "✅ Encontrado directorio system_info_app/"
-            pytest system_info_app/ -v --tb=short --color=yes
-          elif [ -d "system_info_app" ]; then
-            echo "⚠️ Ejecutando system_info_app marcados como integración..."
-            pytest system_info_app/ -v --tb=short --color=yes -k "integration or Integration" || echo "ℹ️ No se encontraron system_info_app de integración"
-          else
-            echo "⚠️ No se encontró directorio de system_info_app"
-            echo "✅ Comprueba que cada función o módulo funciona correctamente en conjunto"
-            python -c "
-              import sys
-              print('✅ Verificando importación de módulos principales...')
-              try:
-                  # Agregar validaciones específicas según tu proyecto
-                  import os
-                  print(f'✅ Sistema operativo: {os.name}')
-                  print('✅ Validación básica de integración completada')
-              except ImportError as e:
-                  print(f'❌ Error en importación: {e}')
-                  sys.exit(1)
-                          "
-                        fi
+            echo "🔗 Iniciando tests de integración..."
+        
+            if [ -d "system_info_app" ]; then
+              echo "✅ Encontrado directorio system_info_app/"
+              pytest system_info_app/ -v --tb=short --color=yes
+            elif [ -d "system_info_app/test" ]; then
+              echo "⚠️ Ejecutando tests marcados como integración..."
+              pytest system_info_app/test/ -v --tb=short --color=yes -k "integration or Integration" || echo "ℹ️ No se encontraron tests de integración"
+            else
+              echo "⚠️ No se encontró directorio system_info_app"
+              echo "✅ Realizando validación básica..."
+              python - <<'PYCODE'
+            import sys
+            import os
+            
+            print('✅ Verificando importación de módulos principales...')
+            try:
+                print(f'✅ Sistema operativo: {os.name}')
+                print('✅ Validación básica de integración completada')
+            except ImportError as e:
+                print(f'❌ Error en importación: {e}')
+                sys.exit(1)
+            PYCODE
+                fi
+        
 
       - name: 📤 Subir logs de integración
         if: always()
