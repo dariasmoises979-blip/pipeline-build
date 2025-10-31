@@ -349,18 +349,18 @@ jobs:
             echo "⚠️ No se encontró directorio de tests de integración"
             echo "Ejecutando validación básica de módulos..."
             python -c "
-import sys
-import importlib.util
-print('✅ Verificando importación de módulos...')
-# Agregar aquí validaciones específicas según tu proyecto
-print('✅ Importación de módulos OK')
-            "
-          fi
+              import sys
+              import importlib.util
+              print('✅ Verificando importación de módulos...')
+              # Agregar aquí validaciones específicas según tu proyecto
+              print('✅ Importación de módulos OK')
+                          "
+                        fi
 
-      - name: 📤 Subir logs de integración
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
+                    - name: 📤 Subir logs de integración
+                      if: always()
+                      uses: actions/upload-artifact@v4
+                      with:
           name: integration-logs-${{ github.run_id }}
           path: |
             ${{ inputs.external_repo_path }}/system_info_app/logs/
