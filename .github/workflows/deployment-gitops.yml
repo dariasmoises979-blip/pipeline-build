@@ -129,8 +129,8 @@ jobs:
       - name: 🔧 Install dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y yq jq
-          echo "✅ yq and jq installed"
+          sudo wget https://github.com/mikefarah/yq/releases/latest/download/yq_linux_amd64 -O /usr/bin/yq
+          sudo chmod +x /usr/bin/yq
 
       # ═══════════════════════════════════════════════════════════
       # 🔍 PASO 4: VERIFICAR ESTRUCTURA
@@ -143,6 +143,7 @@ jobs:
           echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
           echo "📍 Current directory: $(pwd)"
           echo ""
+          ls -la
           
           K8S_PATH="kubernetes/${{ inputs.environment }}/${{ inputs.project_name }}"
           HELM_PATH="helm/override/${{ inputs.environment }}"
