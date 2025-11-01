@@ -1,13 +1,12 @@
 ########################################
-# 🔄 WORKFLOW REUSABLE: Update Kubernetes Manifests
-# Actualiza imágenes Docker en manifiestos de Kubernetes
-# y sube los cambios al repositorio
-# update-k8s-manifests.yml
+# 🔄 WORKFLOW REUSABLE: Update Kubernetes & Helm Manifests
+# Actualiza imágenes Docker en manifiestos de Kubernetes y Helm
+# con búsqueda inteligente y validación robusta
+# update-k8s-manifests.yml v2.0
 ########################################
 
-name: Reusable Update K8s Manifests
+name: Reusable Update K8s & Helm Manifests
 
-# 🔧 Definir como workflow reusable con inputs configurables
 on:
   workflow_call:
     inputs:
@@ -20,23 +19,17 @@ on:
         required: true
         type: string
       environment:
-        description: 'Entorno de deployment (pro/pre/staging)'
+        description: 'Entorno de deployment (pro/pre/staging/qa/devops)'
         required: true
         type: string
       image_tag:
         description: 'Tag de la imagen Docker a usar'
         required: true
         type: string
-      manifests_path:
-        description: 'Ruta a los manifiestos de Kubernetes (relativo al repo)'
-        required: false
+      project_name:
+        description: 'Nombre del proyecto (debe coincidir con github.event.repository.name)'
+        required: true
         type: string
-        default: 'k8s/manifests'
-      manifest_files:
-        description: 'Archivos a actualizar (separados por coma, ej: deployment.yaml,statefulset.yaml)'
-        required: false
-        type: string
-        default: 'deployment.yaml'
       commit_message:
         description: 'Mensaje de commit personalizado'
         required: false
@@ -52,14 +45,16 @@ on:
         required: false
         type: string
         default: 'main'
+      dry_run:
+        description: 'Modo dry-run (solo mostrar cambios sin aplicar)'
+        required: false
+        type: boolean
+        default: false
     secrets:
       GH_TOKEN:
         description: 'Token de GitHub con permisos de escritura'
         required: true
     
-    # ═══════════════════════════════════════════════════════════
-    # 🆕 OUTPUTS: INFORMACIÓN DEL UPDATE
-    # ═══════════════════════════════════════════════════════════
     outputs:
       commit_sha:
         description: 'SHA del commit generado'
@@ -70,23 +65,28 @@ on:
       files_updated:
         description: 'Lista de archivos actualizados'
         value: ${{ jobs.update-manifests.outputs.files_updated }}
+      k8s_files_count:
+        description: 'Número de archivos Kubernetes actualizados'
+        value: ${{ jobs.update-manifests.outputs.k8s_files_count }}
+      helm_files_count:
+        description: 'Número de archivos Helm actualizados'
+        value: ${{ jobs.update-manifests.outputs.helm_files_count }}
 
 permissions:
   contents: write
   pull-requests: write
 
 jobs:
-  # ═══════════════════════════════════════════════════════════
-  # 🔄 JOB: UPDATE KUBERNETES MANIFESTS
-  # ═══════════════════════════════════════════════════════════
   update-manifests:
-    name: 🔄 Update K8s Manifests - ${{ inputs.environment }}
+    name: 🔄 Update Manifests - ${{ inputs.environment }}
     runs-on: ubuntu-latest
     
     outputs:
       commit_sha: ${{ steps.commit.outputs.commit_sha }}
       pr_number: ${{ steps.create_pr.outputs.pr_number }}
       files_updated: ${{ steps.update_files.outputs.files_updated }}
+      k8s_files_count: ${{ steps.update_files.outputs.k8s_files_count }}
+      helm_files_count: ${{ steps.update_files.outputs.helm_files_count }}
     
     steps:
       # ═══════════════════════════════════════════════════════════
@@ -99,152 +99,376 @@ jobs:
           fetch-depth: 0
 
       # ═══════════════════════════════════════════════════════════
-      # 🔍 PASO 2: VERIFICAR ESTRUCTURA DE ARCHIVOS
+      # 🔧 PASO 2: INSTALAR DEPENDENCIAS
       # ═══════════════════════════════════════════════════════════
-      - name: 🔍 Verify manifests structure
+      - name: 🔧 Install dependencies
         run: |
-          echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-          echo "📂 KUBERNETES MANIFESTS VERIFICATION"
-          echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-          echo "📁 Manifests path: ${{ inputs.manifests_path }}"
-          echo ""
-          
-          if [ -d "${{ inputs.manifests_path }}" ]; then
-            echo "✅ Manifests directory exists"
-            echo ""
-            echo "📋 Directory contents:"
-            ls -la ${{ inputs.manifests_path }}
-          else
-            echo "❌ Manifests directory not found"
-            echo "Creating directory..."
-            mkdir -p ${{ inputs.manifests_path }}
-          fi
-          echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+          sudo apt-get update
+          sudo apt-get install -y yq jq
+          echo "✅ Dependencies installed: yq (YAML processor), jq (JSON processor)"
 
       # ═══════════════════════════════════════════════════════════
-      # 🔄 PASO 3: ACTUALIZAR IMÁGENES EN MANIFIESTOS
+      # 🔍 PASO 3: VERIFICAR ESTRUCTURA DE DIRECTORIOS
       # ═══════════════════════════════════════════════════════════
-      - name: 🔄 Update image tags in manifests
-        id: update_files
+      - name: 🔍 Verify directory structure
+        id: verify_structure
+        run: |
+          echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+          echo "📂 DIRECTORY STRUCTURE VERIFICATION"
+          echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+          
+          ENV="${{ inputs.environment }}"
+          PROJECT="${{ inputs.project_name }}"
+          
+          # Rutas a verificar
+          K8S_PATH="kubernetes/${ENV}/${PROJECT}"
+          HELM_PATH="helm/override/${ENV}"
+          
+          echo "🔍 Searching for manifests in:"
+          echo "   📁 Kubernetes: ${K8S_PATH}"
+          echo "   📁 Helm: ${HELM_PATH}"
+          echo ""
+          
+          K8S_EXISTS=false
+          HELM_EXISTS=false
+          
+          # Verificar Kubernetes
+          if [ -d "${K8S_PATH}" ]; then
+            echo "✅ Kubernetes path found: ${K8S_PATH}"
+            echo "📋 Contents:"
+            ls -la "${K8S_PATH}"
+            K8S_EXISTS=true
+          else
+            echo "⚠️  Kubernetes path not found: ${K8S_PATH}"
+          fi
+          echo ""
+          
+          # Verificar Helm
+          if [ -d "${HELM_PATH}" ]; then
+            echo "✅ Helm path found: ${HELM_PATH}"
+            echo "📋 Contents:"
+            ls -la "${HELM_PATH}"
+            HELM_EXISTS=true
+          else
+            echo "⚠️  Helm path not found: ${HELM_PATH}"
+          fi
+          
+          echo ""
+          echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+          
+          # Exportar paths y existencia
+          echo "k8s_path=${K8S_PATH}" >> $GITHUB_OUTPUT
+          echo "helm_path=${HELM_PATH}" >> $GITHUB_OUTPUT
+          echo "k8s_exists=${K8S_EXISTS}" >> $GITHUB_OUTPUT
+          echo "helm_exists=${HELM_EXISTS}" >> $GITHUB_OUTPUT
+          
+          # Validar que al menos uno existe
+          if [[ "${K8S_EXISTS}" == "false" ]] && [[ "${HELM_EXISTS}" == "false" ]]; then
+            echo "❌ ERROR: Neither Kubernetes nor Helm paths exist!"
+            echo "   Expected one of:"
+            echo "   • ${K8S_PATH}"
+            echo "   • ${HELM_PATH}"
+            exit 1
+          fi
+
+      # ═══════════════════════════════════════════════════════════
+      # 🔄 PASO 4: ACTUALIZAR MANIFIESTOS DE KUBERNETES
+      # ═══════════════════════════════════════════════════════════
+      - name: 🔄 Update Kubernetes manifests
+        id: update_k8s
+        if: steps.verify_structure.outputs.k8s_exists == 'true'
         run: |
           echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
           echo "🔄 UPDATING KUBERNETES MANIFESTS"
           echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
           
-          # Variables
+          K8S_PATH="${{ steps.verify_structure.outputs.k8s_path }}"
           NEW_IMAGE="${{ inputs.dockerhub_username }}/${{ inputs.docker_image }}:${{ inputs.image_tag }}"
-          MANIFESTS_PATH="${{ inputs.manifests_path }}"
-          FILES="${{ inputs.manifest_files }}"
+          DRY_RUN="${{ inputs.dry_run }}"
           
           echo "🐳 New image: ${NEW_IMAGE}"
-          echo "📁 Manifests path: ${MANIFESTS_PATH}"
-          echo "📄 Files to update: ${FILES}"
+          echo "📁 K8s path: ${K8S_PATH}"
+          echo "🔍 Dry-run mode: ${DRY_RUN}"
           echo ""
           
-          # Convertir la lista de archivos separada por comas en array
-          IFS=',' read -ra FILE_ARRAY <<< "${FILES}"
+          K8S_FILES_UPDATED=()
+          K8S_CHANGED=false
           
-          UPDATED_FILES=()
-          CHANGED=false
-          
-          for file in "${FILE_ARRAY[@]}"; do
-            file=$(echo "${file}" | xargs)  # Trim whitespace
-            FULL_PATH="${MANIFESTS_PATH}/${file}"
-            
+          # Buscar todos los archivos YAML recursivamente
+          find "${K8S_PATH}" -type f \( -name "*.yaml" -o -name "*.yml" \) | while read -r file; do
             echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
             echo "📝 Processing: ${file}"
             
-            if [ ! -f "${FULL_PATH}" ]; then
-              echo "⚠️  File not found: ${FULL_PATH}"
-              continue
-            fi
+            # Backup
+            cp "${file}" "${file}.bak"
             
-            # Hacer backup
-            cp "${FULL_PATH}" "${FULL_PATH}.bak"
-            
-            # Buscar y reemplazar la imagen
-            # Patrón: busca líneas con "image:" que contengan el nombre de la imagen
-            OLD_IMAGE=$(grep -E "^\s*image:\s*${{ inputs.dockerhub_username }}/${{ inputs.docker_image }}:" "${FULL_PATH}" | head -1 | sed 's/^[[:space:]]*image:[[:space:]]*//')
+            # Buscar líneas con 'image:' que contengan nuestro usuario/imagen
+            OLD_IMAGE=$(grep -E "^\s*image:\s*${{ inputs.dockerhub_username }}/${{ inputs.docker_image }}:" "${file}" 2>/dev/null | head -1 | sed 's/^[[:space:]]*image:[[:space:]]*//')
             
             if [ -n "${OLD_IMAGE}" ]; then
-              echo "🔍 Old image: ${OLD_IMAGE}"
-              echo "🆕 New image: ${NEW_IMAGE}"
+              echo "🔍 Found image line"
+              echo "   Old: ${OLD_IMAGE}"
+              echo "   New: ${NEW_IMAGE}"
               
-              # Reemplazar la imagen
-              sed -i "s|image: ${OLD_IMAGE}|image: ${NEW_IMAGE}|g" "${FULL_PATH}"
-              
-              # Verificar si hubo cambios
-              if ! diff -q "${FULL_PATH}" "${FULL_PATH}.bak" > /dev/null; then
-                echo "✅ File updated successfully"
-                UPDATED_FILES+=("${file}")
-                CHANGED=true
-              else
-                echo "ℹ️  No changes needed (same image)"
+              if [[ "${OLD_IMAGE}" == "${NEW_IMAGE}" ]]; then
+                echo "ℹ️  No change needed (same image)"
+                rm "${file}.bak"
+                continue
               fi
               
-              rm "${FULL_PATH}.bak"
+              if [[ "${DRY_RUN}" == "true" ]]; then
+                echo "🔍 [DRY-RUN] Would update image"
+                rm "${file}.bak"
+                continue
+              fi
+              
+              # Actualizar usando yq para mantener formato YAML
+              yq eval -i "(..|select(has(\"image\"))|select(.image == \"${OLD_IMAGE}\")).image = \"${NEW_IMAGE}\"" "${file}"
+              
+              # Verificar cambio
+              if ! diff -q "${file}" "${file}.bak" > /dev/null 2>&1; then
+                echo "✅ File updated successfully"
+                K8S_FILES_UPDATED+=("${file}")
+                K8S_CHANGED=true
+                
+                # Validar YAML
+                if ! yq eval "${file}" > /dev/null 2>&1; then
+                  echo "❌ YAML validation failed! Rolling back..."
+                  mv "${file}.bak" "${file}"
+                  exit 1
+                fi
+              fi
+              
+              rm "${file}.bak"
             else
-              echo "⚠️  No image line found matching pattern"
-              rm "${FULL_PATH}.bak"
+              echo "ℹ️  No matching image found"
+              rm "${file}.bak"
             fi
           done
           
           echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
           echo ""
-          echo "📊 Update Summary:"
-          echo "   • Files processed: ${#FILE_ARRAY[@]}"
-          echo "   • Files updated: ${#UPDATED_FILES[@]}"
-          echo "   • Changed: ${CHANGED}"
+          echo "📊 Kubernetes Update Summary:"
+          echo "   • Files processed: $(find "${K8S_PATH}" -type f \( -name "*.yaml" -o -name "*.yml" \) | wc -l)"
+          echo "   • Files updated: ${#K8S_FILES_UPDATED[@]}"
           echo ""
           
-          if [ "${CHANGED}" = true ]; then
-            echo "✅ Changes detected and applied"
-            echo "📋 Updated files:"
-            for updated_file in "${UPDATED_FILES[@]}"; do
-              echo "   • ${updated_file}"
-            done
-          else
-            echo "ℹ️  No changes needed"
+          # Exportar resultados
+          echo "k8s_changed=${K8S_CHANGED}" >> $GITHUB_OUTPUT
+          echo "k8s_files_count=${#K8S_FILES_UPDATED[@]}" >> $GITHUB_OUTPUT
+          printf '%s\n' "${K8S_FILES_UPDATED[@]}" > /tmp/k8s_files.txt
+
+      # ═══════════════════════════════════════════════════════════
+      # 🎯 PASO 5: ACTUALIZAR HELM VALUES
+      # ═══════════════════════════════════════════════════════════
+      - name: 🎯 Update Helm values
+        id: update_helm
+        if: steps.verify_structure.outputs.helm_exists == 'true'
+        run: |
+          echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+          echo "🎯 UPDATING HELM VALUES"
+          echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+          
+          HELM_PATH="${{ steps.verify_structure.outputs.helm_path }}"
+          NEW_REPO="${{ inputs.dockerhub_username }}/${{ inputs.docker_image }}"
+          NEW_TAG="${{ inputs.image_tag }}"
+          DRY_RUN="${{ inputs.dry_run }}"
+          
+          echo "🐳 New repository: ${NEW_REPO}"
+          echo "🏷️  New tag: ${NEW_TAG}"
+          echo "📁 Helm path: ${HELM_PATH}"
+          echo "🔍 Dry-run mode: ${DRY_RUN}"
+          echo ""
+          
+          HELM_FILES_UPDATED=()
+          HELM_CHANGED=false
+          
+          # Buscar todos los archivos values recursivamente
+          find "${HELM_PATH}" -type f \( -name "*values*.yaml" -o -name "*values*.yml" \) | while read -r file; do
+            echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+            echo "📝 Processing: ${file}"
+            
+            # Backup
+            cp "${file}" "${file}.bak"
+            
+            # Verificar si tiene estructura de imagen Helm
+            HAS_IMAGE_REPO=$(yq eval '.image.repository' "${file}" 2>/dev/null)
+            HAS_IMAGE_TAG=$(yq eval '.image.tag' "${file}" 2>/dev/null)
+            
+            if [[ "${HAS_IMAGE_REPO}" != "null" ]] && [[ "${HAS_IMAGE_TAG}" != "null" ]]; then
+              OLD_REPO=$(yq eval '.image.repository' "${file}")
+              OLD_TAG=$(yq eval '.image.tag' "${file}")
+              
+              echo "🔍 Found Helm image structure:"
+              echo "   Old repository: ${OLD_REPO}"
+              echo "   Old tag: ${OLD_TAG}"
+              echo "   New repository: ${NEW_REPO}"
+              echo "   New tag: ${NEW_TAG}"
+              
+              NEEDS_UPDATE=false
+              
+              if [[ "${OLD_REPO}" != "${NEW_REPO}" ]]; then
+                NEEDS_UPDATE=true
+              fi
+              
+              if [[ "${OLD_TAG}" != "${NEW_TAG}" ]]; then
+                NEEDS_UPDATE=true
+              fi
+              
+              if [[ "${NEEDS_UPDATE}" == "false" ]]; then
+                echo "ℹ️  No change needed (same image)"
+                rm "${file}.bak"
+                continue
+              fi
+              
+              if [[ "${DRY_RUN}" == "true" ]]; then
+                echo "🔍 [DRY-RUN] Would update:"
+                echo "   repository: ${OLD_REPO} → ${NEW_REPO}"
+                echo "   tag: ${OLD_TAG} → ${NEW_TAG}"
+                rm "${file}.bak"
+                continue
+              fi
+              
+              # Actualizar repository y tag
+              yq eval -i ".image.repository = \"${NEW_REPO}\"" "${file}"
+              yq eval -i ".image.tag = \"${NEW_TAG}\"" "${file}"
+              
+              # Verificar cambio
+              if ! diff -q "${file}" "${file}.bak" > /dev/null 2>&1; then
+                echo "✅ File updated successfully"
+                HELM_FILES_UPDATED+=("${file}")
+                HELM_CHANGED=true
+                
+                # Validar YAML
+                if ! yq eval "${file}" > /dev/null 2>&1; then
+                  echo "❌ YAML validation failed! Rolling back..."
+                  mv "${file}.bak" "${file}"
+                  exit 1
+                fi
+              fi
+              
+              rm "${file}.bak"
+            else
+              echo "ℹ️  No Helm image structure found (skipping)"
+              rm "${file}.bak"
+            fi
+          done
+          
+          echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+          echo ""
+          echo "📊 Helm Update Summary:"
+          echo "   • Files processed: $(find "${HELM_PATH}" -type f \( -name "*values*.yaml" -o -name "*values*.yml" \) 2>/dev/null | wc -l)"
+          echo "   • Files updated: ${#HELM_FILES_UPDATED[@]}"
+          echo ""
+          
+          # Exportar resultados
+          echo "helm_changed=${HELM_CHANGED}" >> $GITHUB_OUTPUT
+          echo "helm_files_count=${#HELM_FILES_UPDATED[@]}" >> $GITHUB_OUTPUT
+          printf '%s\n' "${HELM_FILES_UPDATED[@]}" > /tmp/helm_files.txt
+
+      # ═══════════════════════════════════════════════════════════
+      # 📊 PASO 6: CONSOLIDAR RESULTADOS
+      # ═══════════════════════════════════════════════════════════
+      - name: 📊 Consolidate results
+        id: update_files
+        run: |
+          echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+          echo "📊 CONSOLIDATING UPDATE RESULTS"
+          echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+          
+          ALL_FILES=()
+          
+          # Agregar archivos K8s
+          if [ -f /tmp/k8s_files.txt ]; then
+            while IFS= read -r line; do
+              ALL_FILES+=("${line}")
+            done < /tmp/k8s_files.txt
           fi
+          
+          # Agregar archivos Helm
+          if [ -f /tmp/helm_files.txt ]; then
+            while IFS= read -r line; do
+              ALL_FILES+=("${line}")
+            done < /tmp/helm_files.txt
+          fi
+          
+          K8S_CHANGED="${{ steps.update_k8s.outputs.k8s_changed }}"
+          HELM_CHANGED="${{ steps.update_helm.outputs.helm_changed }}"
+          K8S_COUNT="${{ steps.update_k8s.outputs.k8s_files_count }}"
+          HELM_COUNT="${{ steps.update_helm.outputs.helm_files_count }}"
+          
+          # Determinar si hubo cambios
+          CHANGED=false
+          if [[ "${K8S_CHANGED}" == "true" ]] || [[ "${HELM_CHANGED}" == "true" ]]; then
+            CHANGED=true
+          fi
+          
+          echo "📋 Summary:"
+          echo "   • Total files updated: ${#ALL_FILES[@]}"
+          echo "   • Kubernetes files: ${K8S_COUNT:-0}"
+          echo "   • Helm files: ${HELM_COUNT:-0}"
+          echo "   • Changes detected: ${CHANGED}"
+          echo ""
+          
+          if [ ${#ALL_FILES[@]} -gt 0 ]; then
+            echo "📄 Updated files:"
+            for file in "${ALL_FILES[@]}"; do
+              echo "   • ${file}"
+            done
+          fi
+          
+          echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
           
           # Exportar outputs
           echo "changed=${CHANGED}" >> $GITHUB_OUTPUT
-          echo "files_updated=${UPDATED_FILES[*]}" >> $GITHUB_OUTPUT
-          echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+          echo "files_updated=${ALL_FILES[*]}" >> $GITHUB_OUTPUT
+          echo "k8s_files_count=${K8S_COUNT:-0}" >> $GITHUB_OUTPUT
+          echo "helm_files_count=${HELM_COUNT:-0}" >> $GITHUB_OUTPUT
 
       # ═══════════════════════════════════════════════════════════
-      # 📊 PASO 4: MOSTRAR CAMBIOS
+      # 📊 PASO 7: MOSTRAR CAMBIOS
       # ═══════════════════════════════════════════════════════════
       - name: 📊 Show changes
-        if: steps.update_files.outputs.changed == 'true'
+        if: steps.update_files.outputs.changed == 'true' && inputs.dry_run == false
         run: |
           echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
           echo "📊 GIT DIFF - CHANGES PREVIEW"
           echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-          git diff ${{ inputs.manifests_path }}
+          
+          if [[ "${{ steps.verify_structure.outputs.k8s_exists }}" == "true" ]]; then
+            echo ""
+            echo "🔷 Kubernetes Changes:"
+            git diff ${{ steps.verify_structure.outputs.k8s_path }} || echo "No changes"
+          fi
+          
+          if [[ "${{ steps.verify_structure.outputs.helm_exists }}" == "true" ]]; then
+            echo ""
+            echo "🎯 Helm Changes:"
+            git diff ${{ steps.verify_structure.outputs.helm_path }} || echo "No changes"
+          fi
+          
           echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
 
       # ═══════════════════════════════════════════════════════════
-      # 🔧 PASO 5: CONFIGURAR GIT
+      # 🔧 PASO 8: CONFIGURAR GIT
       # ═══════════════════════════════════════════════════════════
       - name: 🔧 Configure Git
-        if: steps.update_files.outputs.changed == 'true'
+        if: steps.update_files.outputs.changed == 'true' && inputs.dry_run == false
         run: |
           git config --global user.name "github-actions[bot]"
           git config --global user.email "github-actions[bot]@users.noreply.github.com"
 
       # ═══════════════════════════════════════════════════════════
-      # 💾 PASO 6A: COMMIT DIRECTO (SI NO SE CREA PR)
+      # 💾 PASO 9A: COMMIT DIRECTO
       # ═══════════════════════════════════════════════════════════
       - name: 💾 Commit changes
         id: commit
-        if: steps.update_files.outputs.changed == 'true' && inputs.create_pr == false
+        if: steps.update_files.outputs.changed == 'true' && inputs.create_pr == false && inputs.dry_run == false
         run: |
-          # Mensaje de commit personalizado o por defecto
           if [ -n "${{ inputs.commit_message }}" ]; then
             COMMIT_MSG="${{ inputs.commit_message }}"
           else
-            COMMIT_MSG="🔄 Update K8s manifests - ${{ inputs.environment }} - ${{ inputs.image_tag }}"
+            COMMIT_MSG="🔄 Update manifests - ${{ inputs.environment }} - ${{ inputs.image_tag }}"
           fi
           
           echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
@@ -254,11 +478,21 @@ jobs:
           echo "🌿 Target branch: ${{ inputs.target_branch }}"
           echo ""
           
-          git add ${{ inputs.manifests_path }}
+          # Agregar solo los archivos modificados
+          if [[ "${{ steps.verify_structure.outputs.k8s_exists }}" == "true" ]]; then
+            git add ${{ steps.verify_structure.outputs.k8s_path }}
+          fi
+          
+          if [[ "${{ steps.verify_structure.outputs.helm_exists }}" == "true" ]]; then
+            git add ${{ steps.verify_structure.outputs.helm_path }}
+          fi
+          
           git commit -m "${COMMIT_MSG}" \
             -m "Environment: ${{ inputs.environment }}" \
+            -m "Project: ${{ inputs.project_name }}" \
             -m "Image: ${{ inputs.dockerhub_username }}/${{ inputs.docker_image }}:${{ inputs.image_tag }}" \
-            -m "Updated files: ${{ steps.update_files.outputs.files_updated }}" \
+            -m "Kubernetes files updated: ${{ steps.update_files.outputs.k8s_files_count }}" \
+            -m "Helm files updated: ${{ steps.update_files.outputs.helm_files_count }}" \
             -m "Triggered by: ${{ github.actor }}" \
             -m "Workflow: ${{ github.workflow }}" \
             -m "Run ID: ${{ github.run_id }}"
@@ -274,83 +508,74 @@ jobs:
           echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
 
       # ═══════════════════════════════════════════════════════════
-      # 🔀 PASO 6B: CREAR PULL REQUEST (SI create_pr=true)
+      # 🔀 PASO 9B: CREAR PULL REQUEST
       # ═══════════════════════════════════════════════════════════
       - name: 🔀 Create Pull Request
         id: create_pr
-        if: steps.update_files.outputs.changed == 'true' && inputs.create_pr == true
+        if: steps.update_files.outputs.changed == 'true' && inputs.create_pr == true && inputs.dry_run == false
         uses: peter-evans/create-pull-request@v6
         with:
           token: ${{ secrets.GH_TOKEN }}
           commit-message: |
-            🔄 Update K8s manifests - ${{ inputs.environment }} - ${{ inputs.image_tag }}
+            🔄 Update K8s & Helm manifests - ${{ inputs.environment }} - ${{ inputs.image_tag }}
             
             Environment: ${{ inputs.environment }}
+            Project: ${{ inputs.project_name }}
             Image: ${{ inputs.dockerhub_username }}/${{ inputs.docker_image }}:${{ inputs.image_tag }}
-            Updated files: ${{ steps.update_files.outputs.files_updated }}
-          branch: k8s-update-${{ inputs.environment }}-${{ github.run_id }}
+            K8s files: ${{ steps.update_files.outputs.k8s_files_count }}
+            Helm files: ${{ steps.update_files.outputs.helm_files_count }}
+          branch: manifests-update-${{ inputs.environment }}-${{ github.run_id }}
           delete-branch: true
           base: ${{ inputs.target_branch }}
-          title: "🔄 Update K8s manifests - ${{ inputs.environment }} - ${{ inputs.image_tag }}"
+          title: "🔄 Update Manifests - ${{ inputs.environment }} - ${{ inputs.image_tag }}"
           body: |
-            ## 🔄 Kubernetes Manifests Update
+            ## 🔄 Kubernetes & Helm Manifests Update
             
-            This PR updates the Kubernetes manifests with the new Docker image tag.
+            This PR updates both Kubernetes and Helm manifests with the new Docker image.
             
             ### 📋 Details
             - **Environment**: `${{ inputs.environment }}`
+            - **Project**: `${{ inputs.project_name }}`
             - **New Image**: `${{ inputs.dockerhub_username }}/${{ inputs.docker_image }}:${{ inputs.image_tag }}`
-            - **Updated Files**: ${{ steps.update_files.outputs.files_updated }}
+            - **K8s Files Updated**: ${{ steps.update_files.outputs.k8s_files_count }}
+            - **Helm Files Updated**: ${{ steps.update_files.outputs.helm_files_count }}
             - **Triggered by**: @${{ github.actor }}
             - **Workflow Run**: [${{ github.run_id }}](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }})
             
+            ### 📂 Paths Updated
+            ${{ steps.verify_structure.outputs.k8s_exists == 'true' && format('- 🔷 Kubernetes: `{0}`', steps.verify_structure.outputs.k8s_path) || '' }}
+            ${{ steps.verify_structure.outputs.helm_exists == 'true' && format('- 🎯 Helm: `{0}`', steps.verify_structure.outputs.helm_path) || '' }}
+            
             ### 🤖 Automated Changes
-            This PR was automatically generated by the CI/CD pipeline after a successful build and deployment.
+            This PR was automatically generated by the CI/CD pipeline after a successful build.
+            All manifests have been validated for YAML syntax.
             
             ---
             
             Please review and merge to apply the changes to the `${{ inputs.target_branch }}` branch.
           labels: |
             automated
-            k8s-update
+            manifests-update
             ${{ inputs.environment }}
 
       # ═══════════════════════════════════════════════════════════
-      # 📊 PASO 7: RESUMEN FINAL
+      # 📊 PASO 10: RESUMEN FINAL
       # ═══════════════════════════════════════════════════════════
       - name: 📊 Summary Report
         if: always()
         run: |
           echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-          echo "📊 KUBERNETES MANIFESTS UPDATE SUMMARY"
+          echo "📊 MANIFESTS UPDATE SUMMARY"
           echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
           echo "🌍 Environment: ${{ inputs.environment }}"
+          echo "📦 Project: ${{ inputs.project_name }}"
           echo "🐳 New Image: ${{ inputs.dockerhub_username }}/${{ inputs.docker_image }}:${{ inputs.image_tag }}"
-          echo "📁 Manifests Path: ${{ inputs.manifests_path }}"
-          echo "📄 Target Files: ${{ inputs.manifest_files }}"
           echo "🌿 Target Branch: ${{ inputs.target_branch }}"
+          echo "🔍 Dry-run Mode: ${{ inputs.dry_run }}"
           echo ""
           
           if [ "${{ steps.update_files.outputs.changed }}" = "true" ]; then
-            echo "✅ Status: Changes applied"
-            echo "📋 Updated Files: ${{ steps.update_files.outputs.files_updated }}"
+            echo "✅ Status: Changes detected"
             echo ""
-            
-            if [ "${{ inputs.create_pr }}" = "true" ]; then
-              echo "🔀 Action: Pull Request created"
-              echo "🔗 PR Number: ${{ steps.create_pr.outputs.pull-request-number }}"
-              echo "🔗 PR URL: ${{ steps.create_pr.outputs.pull-request-url }}"
-            else
-              echo "💾 Action: Direct commit"
-              echo "🔗 Commit SHA: ${{ steps.commit.outputs.commit_sha }}"
-            fi
-          else
-            echo "ℹ️  Status: No changes needed"
-            echo "   The manifests already have the correct image tag"
-          fi
-          
-          echo ""
-          echo "👤 Triggered by: ${{ github.actor }}"
-          echo "🕐 Date: $(date -u +'%Y-%m-%d %H:%M:%S UTC')"
-          echo "🔗 Workflow Run: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
-          echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+            echo "📊 Files Updated:"
+            echo "   • Kubernetes: $
