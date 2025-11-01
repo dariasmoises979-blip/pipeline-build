@@ -143,7 +143,7 @@ jobs:
           fetch-depth: 0
           ref: main
           path: pipeline-build
-       
+            token: ${{ secrets.GITHUB_TOKEN }}
      
       # ═══════════════════════════════════════════════════════════
       # 🔧 PASO 3: INSTALAR DEPENDENCIAS
