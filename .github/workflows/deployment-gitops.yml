@@ -123,12 +123,11 @@ jobs:
           echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
 
       # ═══════════════════════════════════════════════════════════
-      # 📥 PASO 2: CHECKOUT DEL REPOSITORIO EXTERNO
+      # 📥 PASO 2: CHECKOUT DEL REPOSITORIO ACTUAL
       # ═══════════════════════════════════════════════════════════
-      - name: 📦 Checkout manifests repository
+      - name: 📦 Checkout repository
         uses: actions/checkout@v4
         with:
-          repository: dariasmoises979-blip/manifests-repo
           token: ${{ secrets.GH_TOKEN }}
           fetch-depth: 0
           ref: ${{ inputs.target_branch }}
