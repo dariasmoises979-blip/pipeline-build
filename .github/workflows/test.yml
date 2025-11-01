@@ -148,7 +148,7 @@ jobs:
           echo "key=${{ runner.os }}-pip-${{ inputs.python_version }}-${HASH}" >> $GITHUB_OUTPUT
 
       - name: 💾 Cache de dependencias pip
-        uses: actions/cache@v3
+        uses: actions/cache@v4
         with:
           path: ~/.cache/pip
           key: ${{ steps.cache-key.outputs.key }}
@@ -221,7 +221,7 @@ jobs:
           python-version: ${{ needs.setup.outputs.python-version }}
 
       - name: 💾 Restaurar cache de pip
-        uses: actions/cache@v3
+        uses: actions/cache@v4
         with:
           path: ~/.cache/pip
           key: ${{ needs.setup.outputs.cache-key }}
@@ -318,7 +318,7 @@ jobs:
           python-version: ${{ needs.setup.outputs.python-version }}
 
       - name: 💾 Restaurar cache de pip
-        uses: actions/cache@v3
+        uses: actions/cache@v4
         with:
           path: ~/.cache/pip
           key: ${{ needs.setup.outputs.cache-key }}
@@ -398,7 +398,7 @@ jobs:
           python-version: ${{ needs.setup.outputs.python-version }}
 
       - name: 💾 Restaurar cache de pip
-        uses: actions/cache@v3
+        uses: actions/cache@v4
         with:
           path: ~/.cache/pip
           key: ${{ needs.setup.outputs.cache-key }}
@@ -629,12 +629,12 @@ jobs:
           fi
 
       - name: 🔎 Ejecutar análisis de SonarCloud
-        uses: SonarSource/sonarcloud-github-action@v4
+        uses: SonarSource/sonarcloud-github-action@v2
         with:
           projectBaseDir: ${{ inputs.external_repo_path }}
           args: ${{ inputs.sonar_args }}
         env:
-          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN_PIPELINE }}
+          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
           GITHUB_TOKEN: ${{ secrets.EXTERNAL_REPO_TOKEN }}
         continue-on-error: true
 
