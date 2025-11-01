@@ -23,6 +23,11 @@ global:
     repository: n8nio/n8n
     tag: 1.67.0
 
+image:
+  repository: dariasmoises979/mi-aplicacion
+  tag: pre-abcdef1
+  pullPolicy: IfNotPresent
+
 server:
   service:
     type: ClusterIP

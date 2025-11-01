@@ -23,6 +23,12 @@ global:
     repository: n8nio/n8n   # 🧩 Repositorio de la imagen
     tag: 1.67.0             # 🧩 Versión de n8n
 
+
+image:
+  repository: dariasmoises979/mi-aplicacion
+  tag: pre-abcdef1
+  pullPolicy: IfNotPresent
+
 server:
   # ======================================================
   # ⚙️ Configuración del servicio n8n
