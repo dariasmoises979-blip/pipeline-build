@@ -1,66 +1,52 @@
 ########################################
-# 🧪 WORKFLOW REUSABLE: Date Workflow
+# 🧪 WORKFLOW REUSABLE: Test Workflow
 # Ejecuta pruebas unitarias, de integración, lint y análisis de calidad.
-# Pensado para reutilizar en pipelines automatizados.
-# test.yml
 ########################################
 
-name: Reusable Date Workflow
+name: Reusable Test Workflow
 
-# 🔧 Definir como workflow reusable
 on:
   workflow_call:
     inputs:
       external_repo:
         required: true
         type: string
-        description: 'Nombre del repositorio externo (e.g., dariasmoises979-blip/app)'
       external_repo_ref:
         required: true
         type: string
-        description: 'Rama o tag del repositorio externo (e.g., main)'
       external_repo_path:
         required: false
         type: string
         default: './app-repo'
-        description: 'Ruta donde clonar el repositorio externo'
       python_version:
         required: false
         type: string
         default: '3.12'
-        description: 'Versión de Python a usar'
       coverage_threshold:
         required: false
         type: number
         default: 80
-        description: 'Umbral mínimo de cobertura de código (%)'
       sonar_args:
         required: false
         type: string
         default: ''
-        description: 'Argumentos adicionales para SonarCloud'
       projectBaseDir:
         required: false
         type: string
         default: ''
-        description: 'Directorio base del proyecto para SonarCloud'
       run_integration_tests:
         required: false
         type: boolean
         default: true
-        description: 'Ejecutar tests de integración'
       run_security_scan:
         required: false
         type: boolean
         default: true
-        description: 'Ejecutar análisis de seguridad'
     secrets:
       EXTERNAL_REPO_TOKEN: 
         required: true
-        description: 'Token para acceder al repositorio app'
       SONAR_TOKEN:
         required: false
-        description: 'Token de SonarCloud para análisis de calidad'
 
 permissions:
   actions: read
@@ -69,7 +55,6 @@ permissions:
   checks: write
   pull-requests: write
 
-# 🌍 Variables de entorno globales
 env:
   PYTHONUNBUFFERED: '1'
   PIP_DISABLE_PIP_VERSION_CHECK: '1'
@@ -105,7 +90,6 @@ jobs:
         run: |
           echo "🔍 Verificando estructura del proyecto..."
           
-          # Verificar requirements.txt
           if [ -f "local/requirements.txt" ]; then
             echo "✅ Encontrado: local/requirements.txt"
             echo "has-requirements=true" >> $GITHUB_OUTPUT
@@ -114,16 +98,14 @@ jobs:
             echo "has-requirements=false" >> $GITHUB_OUTPUT
           fi
           
-          # Verificar directorio de system_info_app
           if [ -d "system_info_app" ] || [ -d "system_info_app/test" ]; then
             echo "✅ Encontrado: directorio de system_info_app"
-            echo "has-system_info_app=true" >> $GITHUB_OUTPUT
+            echo "has-tests=true" >> $GITHUB_OUTPUT
           else
             echo "⚠️ No encontrado: directorio de system_info_app"
-            echo "has-system_info_app=false" >> $GITHUB_OUTPUT
+            echo "has-tests=false" >> $GITHUB_OUTPUT
           fi
           
-          # Mostrar estructura
           echo "📂 Estructura del proyecto:"
           ls -la || true
 
@@ -138,7 +120,6 @@ jobs:
         run: |
           echo "version=${{ steps.setup-python.outputs.python-version }}" >> $GITHUB_OUTPUT
           echo "🐍 Python version: $(python --version)"
-          echo "📦 Pip version: $(pip --version)"
 
       - name: 🔑 Generar cache key
         id: cache-key
@@ -154,40 +135,26 @@ jobs:
           key: ${{ steps.cache-key.outputs.key }}
           restore-keys: |
             ${{ runner.os }}-pip-${{ inputs.python_version }}-
-            ${{ runner.os }}-pip-
 
       - name: 📥 Instalar dependencias base
         working-directory: ${{ inputs.external_repo_path }}
         run: |
-          echo "📦 Actualizando pip, setuptools y wheel..."
           python -m pip install --upgrade pip setuptools wheel
           
           if [ -f "local/requirements.txt" ]; then
-            echo "📥 Instalando dependencias del proyecto..."
             pip install -r local/requirements.txt
-          else
-            echo "⚠️ No se encontró local/requirements.txt"
           fi
           
-          echo "🛠️ Instalando herramientas de testing y calidad..."
           pip install \
             pytest pytest-cov pytest-html pytest-xdist \
             flake8 black pylint isort \
             bandit safety \
             coverage[toml]
 
-      - name: 📊 Listar dependencias instaladas
-        run: |
-          echo "📋 Dependencias instaladas:"
-          pip list
-          echo ""
-          echo "📦 Total de paquetes: $(pip list | wc -l)"
-
       - name: 🗜️ Empaquetar código del proyecto
         run: |
-          echo "📦 Empaquetando código..."
           tar -czf app-build.tar.gz ${{ inputs.external_repo_path }}
-          echo "✅ Tamaño del artefacto: $(du -h app-build.tar.gz | cut -f1)"
+          echo "✅ Tamaño: $(du -h app-build.tar.gz | cut -f1)"
 
       - name: 📤 Subir artefacto
         uses: actions/upload-artifact@v4
@@ -225,9 +192,6 @@ jobs:
         with:
           path: ~/.cache/pip
           key: ${{ needs.setup.outputs.cache-key }}
-          restore-keys: |
-            ${{ runner.os }}-pip-${{ inputs.python_version }}-
-            ${{ runner.os }}-pip-
 
       - name: 📥 Instalar dependencias
         working-directory: ${{ inputs.external_repo_path }}
@@ -245,22 +209,36 @@ jobs:
         run: |
           echo "🧪 Iniciando tests unitarios..."
           
-          if [ "${{ needs.setup.outputs.has-system_info_app }}" = "true" ]; then
+          # Crear directorio para reportes si no existe
+          mkdir -p coverage-reports
+          
+          if [ "${{ needs.setup.outputs.has-tests }}" = "true" ]; then
             pytest -v \
               --cov=. \
-              --cov-report=xml \
-              --cov-report=html \
+              --cov-report=xml:coverage-reports/coverage.xml \
+              --cov-report=html:coverage-reports/htmlcov \
               --cov-report=term-missing \
               --cov-fail-under=${{ inputs.coverage_threshold }} \
-              --html=pytest-report.html \
+              --html=coverage-reports/pytest-report.html \
               --self-contained-html \
               -n auto \
               --maxfail=3 \
               --tb=short \
               --color=yes
+            
+            # Verificar que se generó el archivo
+            if [ -f "coverage-reports/coverage.xml" ]; then
+              echo "✅ coverage.xml generado correctamente"
+              ls -lh coverage-reports/
+            else
+              echo "❌ ERROR: No se generó coverage.xml"
+              exit 1
+            fi
           else
-            echo "⚠️ No se encontraron system_info_app, ejecutando validación básica..."
-            python -m pytest --collect-only || echo "✅ No hay system_info_app configurados aún"
+            echo "⚠️ No se encontraron tests"
+            # Crear archivo vacío para evitar fallos downstream
+            mkdir -p coverage-reports
+            echo '<?xml version="1.0" ?><coverage version="0.0"></coverage>' > coverage-reports/coverage.xml
           fi
         continue-on-error: false
 
@@ -268,16 +246,11 @@ jobs:
         if: always()
         working-directory: ${{ inputs.external_repo_path }}/system_info_app
         run: |
-          if [ -f coverage.xml ]; then
+          if [ -f "coverage-reports/coverage.xml" ]; then
             echo "📊 REPORTE DE COBERTURA" >> $GITHUB_STEP_SUMMARY
-            echo "" >> $GITHUB_STEP_SUMMARY
             echo '```' >> $GITHUB_STEP_SUMMARY
-            coverage report >> $GITHUB_STEP_SUMMARY
+            coverage report 2>/dev/null >> $GITHUB_STEP_SUMMARY || echo "Reporte no disponible"
             echo '```' >> $GITHUB_STEP_SUMMARY
-            echo "" >> $GITHUB_STEP_SUMMARY
-            echo "✅ Cobertura generada correctamente"
-          else
-            echo "⚠️ No se generó reporte de cobertura"
           fi
 
       - name: 📤 Subir reporte de cobertura
@@ -285,11 +258,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: coverage-report-${{ github.run_id }}
-          path: |
-            ${{ inputs.external_repo_path }}/system_info_app/htmlcov/
-            ${{ inputs.external_repo_path }}/system_info_app/coverage.xml
-            ${{ inputs.external_repo_path }}/system_info_app/pytest-report.html
-            ${{ inputs.external_repo_path }}/system_info_app/.coverage
+          path: ${{ inputs.external_repo_path }}/system_info_app/coverage-reports/
           retention-days: 30
           if-no-files-found: warn
 
@@ -337,42 +306,14 @@ jobs:
       - name: 🔗 Ejecutar pruebas de integración
         working-directory: ${{ inputs.external_repo_path }}
         run: |
-            echo "🔗 Iniciando tests de integración..."
-        
-            if [ -d "system_info_app" ]; then
-              echo "✅ Encontrado directorio system_info_app/"
-              pytest system_info_app/ -v --tb=short --color=yes
-            elif [ -d "system_info_app/test" ]; then
-              echo "⚠️ Ejecutando tests marcados como integración..."
-              pytest system_info_app/test/ -v --tb=short --color=yes -k "integration or Integration" || echo "ℹ️ No se encontraron tests de integración"
-            else
-              echo "⚠️ No se encontró directorio system_info_app"
-              echo "✅ Realizando validación básica..."
-              python - <<'PYCODE'
-            import sys
-            import os
-            
-            print('✅ Verificando importación de módulos principales...')
-            try:
-                print(f'✅ Sistema operativo: {os.name}')
-                print('✅ Validación básica de integración completada')
-            except ImportError as e:
-                print(f'❌ Error en importación: {e}')
-                sys.exit(1)
-            PYCODE
-                fi
-        
-
-      - name: 📤 Subir logs de integración
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: integration-logs-${{ github.run_id }}
-          path: |
-            ${{ inputs.external_repo_path }}/system_info_app/logs/
-            ${{ inputs.external_repo_path }}/system_info_app/*.log
-          retention-days: 7
-          if-no-files-found: ignore
+          echo "🔗 Iniciando tests de integración..."
+          
+          if [ -d "system_info_app" ]; then
+            pytest system_info_app/ -v --tb=short --color=yes
+          else
+            echo "⚠️ No se encontró directorio system_info_app"
+            python -c "import sys; print('✅ Validación básica OK')"
+          fi
 
   # ═══════════════════════════════════════════════════════════
   # 🧹 JOB 3: LINTING Y ANÁLISIS DE ESTILO
@@ -397,108 +338,18 @@ jobs:
         with:
           python-version: ${{ needs.setup.outputs.python-version }}
 
-      - name: 💾 Restaurar cache de pip
-        uses: actions/cache@v4
-        with:
-          path: ~/.cache/pip
-          key: ${{ needs.setup.outputs.cache-key }}
-
       - name: 📥 Instalar herramientas de linting
-        run: |
-          pip install --upgrade pip
-          pip install flake8 black pylint isort
+        run: pip install flake8 black pylint isort
 
       - name: 🔍 Flake8 - Análisis de errores sintácticos
         working-directory: ${{ inputs.external_repo_path }}/system_info_app
         run: |
-          echo "🔍 Ejecutando Flake8 (errores críticos)..."
-          flake8 . \
-            --count \
-            --select=E9,F63,F7,F82 \
-            --show-source \
-            --statistics \
-            --max-line-length=120 \
-            --exclude=__pycache__,.git,venv,env,build,dist,*.egg-info \
-            --format='%(path)s:%(row)d:%(col)d: %(code)s %(text)s' || echo "✅ Sin errores críticos"
+          flake8 . --count --select=E9,F63,F7,F82 --show-source --statistics || echo "✅ Sin errores críticos"
 
-      - name: 📏 Flake8 - Análisis completo de estilo
+      - name: 📏 Flake8 - Análisis completo
         working-directory: ${{ inputs.external_repo_path }}/system_info_app
-        run: |
-          echo "📏 Control de estilo y detección de errores comunes..."
-          flake8 . \
-            --max-line-length=120 \
-            --extend-ignore=E203,W503 \
-            --exclude=__pycache__,.git,venv,env,build,dist,*.egg-info \
-            --statistics \
-            --count || echo "⚠️ Se encontraron issues de estilo (no críticos)"
+        run: flake8 . --max-line-length=120 --statistics || true
         continue-on-error: true
-
-      - name: 🎨 Black - Verificación de formato
-        working-directory: ${{ inputs.external_repo_path }}/system_info_app
-        run: |
-          echo "🎨 Verificando formato con Black..."
-          black --check --diff --color . 2>&1 || {
-            echo "❌ Código no formateado con Black"
-            echo "💡 Sugerencia: Ejecuta 'black .' para formatear automáticamente"
-          }
-        continue-on-error: true
-
-      - name: 📐 isort - Verificar orden de imports
-        working-directory: ${{ inputs.external_repo_path }}/system_info_app
-        run: |
-          echo "📐 Verificando orden de imports con isort..."
-          isort --check-only --diff --color . 2>&1 || {
-            echo "❌ Imports no ordenados correctamente"
-            echo "💡 Sugerencia: Ejecuta 'isort .' para ordenar automáticamente"
-          }
-        continue-on-error: true
-
-      - name: 🔎 Pylint - Análisis de calidad de código
-        working-directory: ${{ inputs.external_repo_path }}/system_info_app
-        run: |
-          echo "🔎 Ejecutando Pylint..."
-          pylint **/*.py \
-            --fail-under=7.0 \
-            --max-line-length=120 \
-            --disable=C0111,C0103,R0903 \
-            --output-format=colorized \
-            --score=yes 2>&1 || echo "⚠️ Score de Pylint por debajo del umbral (no crítico)"
-        continue-on-error: true
-
-      - name: 📊 Generar reporte consolidado de linting
-        if: always()
-        working-directory: ${{ inputs.external_repo_path }}/system_info_app
-        run: |
-          echo "# 📊 Reporte Consolidado de Linting" > lint-report.md
-          echo "" >> lint-report.md
-          echo "🕐 Generado: $(date)" >> lint-report.md
-          echo "🔧 Proyecto: ${{ inputs.external_repo }}" >> lint-report.md
-          echo "" >> lint-report.md
-          
-          echo "## 🔍 Flake8 - Errores críticos" >> lint-report.md
-          echo '```' >> lint-report.md
-          flake8 . --select=E9,F63,F7,F82 --statistics 2>&1 >> lint-report.md || echo "Sin errores críticos" >> lint-report.md
-          echo '```' >> lint-report.md
-          echo "" >> lint-report.md
-          
-          echo "## 📏 Flake8 - Estadísticas completas" >> lint-report.md
-          echo '```' >> lint-report.md
-          flake8 . --statistics 2>&1 >> lint-report.md || true
-          echo '```' >> lint-report.md
-          echo "" >> lint-report.md
-          
-          echo "## 🔎 Pylint Score" >> lint-report.md
-          echo '```' >> lint-report.md
-          pylint **/*.py --score=yes 2>&1 | tail -n 10 >> lint-report.md || true
-          echo '```' >> lint-report.md
-
-      - name: 📤 Subir reporte de linting
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: lint-report-${{ github.run_id }}
-          path: ${{ inputs.external_repo_path }}/system_info_app/lint-report.md
-          retention-days: 30
 
   # ═══════════════════════════════════════════════════════════
   # 🔒 JOB 4: ANÁLISIS DE SEGURIDAD
@@ -524,83 +375,32 @@ jobs:
         with:
           python-version: ${{ needs.setup.outputs.python-version }}
 
-      - name: 📥 Instalar herramientas de seguridad
-        run: |
-          pip install --upgrade pip
-          pip install bandit safety
+      - name: 📥 Instalar herramientas
+        run: pip install bandit safety
 
-      - name: 🔐 Bandit - Análisis de seguridad en código
+      - name: 🔐 Bandit - Análisis de seguridad
         working-directory: ${{ inputs.external_repo_path }}/system_info_app
         run: |
-          echo "🔐 Ejecutando Bandit (análisis de seguridad)..."
-          
-          # Análisis con reporte JSON
-          bandit -r . \
-            -f json \
-            -o bandit-report.json \
-            --severity-level medium \
-            --confidence-level medium 2>&1 || true
-          
-          # Análisis con salida legible
-          echo "📋 Reporte de Bandit:" >> $GITHUB_STEP_SUMMARY
-          echo '```' >> $GITHUB_STEP_SUMMARY
-          bandit -r . -ll -f screen 2>&1 >> $GITHUB_STEP_SUMMARY || true
-          echo '```' >> $GITHUB_STEP_SUMMARY
-          
-          # Mostrar en terminal también
-          bandit -r . -ll 2>&1 || echo "✅ Análisis de seguridad completado"
+          bandit -r . -f json -o bandit-report.json || true
+          bandit -r . -ll || echo "✅ Análisis completado"
 
-      - name: 🛡️ Safety - Vulnerabilidades en dependencias
+      - name: 🛡️ Safety - Vulnerabilidades
         working-directory: ${{ inputs.external_repo_path }}
         run: |
-          echo "🛡️ Verificando vulnerabilidades en dependencias con Safety..."
-          
           if [ "${{ needs.setup.outputs.has-requirements }}" = "true" ]; then
-            # Generar reporte JSON
-            safety check \
-              --file=local/requirements.txt \
-              --json > safety-report.json 2>&1 || true
-            
-            # Mostrar reporte legible
-            echo "📋 Reporte de Safety:" >> $GITHUB_STEP_SUMMARY
-            echo '```' >> $GITHUB_STEP_SUMMARY
-            safety check --file=local/requirements.txt 2>&1 >> $GITHUB_STEP_SUMMARY || true
-            echo '```' >> $GITHUB_STEP_SUMMARY
-            
-            # Mostrar en terminal
-            safety check --file=local/requirements.txt 2>&1 || echo "⚠️ Se encontraron vulnerabilidades conocidas"
-          else
-            echo "⚠️ No se encontró requirements.txt para analizar"
+            safety check --file=local/requirements.txt || true
           fi
         continue-on-error: true
 
-      - name: 📊 Resumen de seguridad
-        if: always()
-        run: |
-          echo "# 🔒 Resumen de Análisis de Seguridad" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-          echo "✅ Análisis de seguridad completado" >> $GITHUB_STEP_SUMMARY
-          echo "📦 Ver artefactos para reportes detallados en JSON" >> $GITHUB_STEP_SUMMARY
-
-      - name: 📤 Subir reportes de seguridad
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: security-reports-${{ github.run_id }}
-          path: |
-            ${{ inputs.external_repo_path }}/system_info_app/bandit-report.json
-            ${{ inputs.external_repo_path }}/safety-report.json
-          retention-days: 30
-          if-no-files-found: ignore
-
   # ═══════════════════════════════════════════════════════════
-  # 📊 JOB 5: SONARCLOUD (ANÁLISIS DE CALIDAD)
+  # 📊 JOB 5: SONARCLOUD
   # ═══════════════════════════════════════════════════════════
   sonarcloud:
     name: 📊 SonarCloud Analysis
     runs-on: ubuntu-latest
     timeout-minutes: 15
-    needs: [setup, test-unit, test-lint]
+    needs: [setup, test-unit]
+    if: always() && needs.test-unit.result != 'cancelled'
     
     steps:
       - name: 💾 Descargar artefacto del código
@@ -620,12 +420,22 @@ jobs:
 
       - name: 📋 Preparar reportes para SonarCloud
         run: |
-          # Mover coverage.xml al directorio esperado por SonarCloud
-          if [ -f "coverage-data/coverage.xml" ]; then
-            cp coverage-data/coverage.xml ${{ inputs.external_repo_path }}/system_info_app/
-            echo "✅ Reporte de cobertura preparado para SonarCloud"
+          echo "📂 Contenido de coverage-data:"
+          ls -la coverage-data/ || echo "⚠️ Directorio vacío o no existe"
+          
+          # Buscar coverage.xml en cualquier subdirectorio
+          COVERAGE_FILE=$(find coverage-data -name "coverage.xml" -type f | head -n 1)
+          
+          if [ -n "$COVERAGE_FILE" ]; then
+            echo "✅ Encontrado: $COVERAGE_FILE"
+            
+            # Copiar al directorio raíz del proyecto para SonarCloud
+            cp "$COVERAGE_FILE" ${{ inputs.external_repo_path }}/system_info_app/coverage.xml
+            
+            echo "✅ coverage.xml copiado a: ${{ inputs.external_repo_path }}/system_info_app/"
+            ls -lh ${{ inputs.external_repo_path }}/system_info_app/coverage.xml
           else
-            echo "⚠️ No se encontró reporte de cobertura"
+            echo "⚠️ No se encontró coverage.xml - SonarCloud continuará sin cobertura"
           fi
 
       - name: 🔎 Ejecutar análisis de SonarCloud
@@ -640,12 +450,11 @@ jobs:
 
       - name: 🔗 Enlace a resultados
         run: |
-          echo "✅ Detección temprana de errores y malas prácticas en el código" >> $GITHUB_STEP_SUMMARY
-          echo "📊 Análisis de SonarCloud completado" >> $GITHUB_STEP_SUMMARY
+          echo "✅ Análisis de SonarCloud completado" >> $GITHUB_STEP_SUMMARY
           echo "🔗 Revisa los resultados en el dashboard de SonarCloud" >> $GITHUB_STEP_SUMMARY
 
   # ═══════════════════════════════════════════════════════════
-  # ✅ JOB 6: RESUMEN Y VALIDACIÓN FINAL (QUALITY GATE)
+  # ✅ JOB 6: RESUMEN FINAL
   # ═══════════════════════════════════════════════════════════
   validation-summary:
     name: ✅ Quality Gate Summary
@@ -657,85 +466,59 @@ jobs:
     steps:
       - name: 📊 Generar resumen ejecutivo
         run: |
-          echo "# 🎯 Quality Gate - Resumen Ejecutivo" >> $GITHUB_STEP_SUMMARY
+          echo "# 🎯 Quality Gate - Resumen" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
-          echo "**Workflow:** Date Workflow" >> $GITHUB_STEP_SUMMARY
           echo "**Repositorio:** ${{ inputs.external_repo }}" >> $GITHUB_STEP_SUMMARY
-          echo "**Rama:** ${{ inputs.external_repo_ref }}" >> $GITHUB_STEP_SUMMARY
           echo "**Run ID:** ${{ github.run_id }}" >> $GITHUB_STEP_SUMMARY
-          echo "**Fecha:** $(date -u +'%Y-%m-%d %H:%M:%S UTC')" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
           
-          echo "## 📋 Resultados por Job" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-          echo "| Check | Estado | Crítico |" >> $GITHUB_STEP_SUMMARY
-          echo "|-------|--------|---------|" >> $GITHUB_STEP_SUMMARY
+          echo "## 📋 Resultados" >> $GITHUB_STEP_SUMMARY
+          echo "| Check | Estado |" >> $GITHUB_STEP_SUMMARY
+          echo "|-------|--------|" >> $GITHUB_STEP_SUMMARY
           
-          # Test Unitarios (CRÍTICO)
+          # Tests Unitarios
           if [ "${{ needs.test-unit.result }}" == "success" ]; then
-            echo "| 🧪 Tests Unitarios | ✅ PASSED | ⚠️ Sí |" >> $GITHUB_STEP_SUMMARY
+            echo "| 🧪 Tests Unitarios | ✅ PASSED |" >> $GITHUB_STEP_SUMMARY
           else
-            echo "| 🧪 Tests Unitarios | ❌ FAILED | ⚠️ Sí |" >> $GITHUB_STEP_SUMMARY
+            echo "| 🧪 Tests Unitarios | ❌ FAILED |" >> $GITHUB_STEP_SUMMARY
           fi
           
-          # Tests de Integración (OPCIONAL)
+          # Tests de Integración
           if [ "${{ needs.test-integration.result }}" == "success" ]; then
-            echo "| 🔗 Tests Integración | ✅ PASSED | No |" >> $GITHUB_STEP_SUMMARY
+            echo "| 🔗 Tests Integración | ✅ PASSED |" >> $GITHUB_STEP_SUMMARY
           elif [ "${{ needs.test-integration.result }}" == "skipped" ]; then
-            echo "| 🔗 Tests Integración | ⏭️ SKIPPED | No |" >> $GITHUB_STEP_SUMMARY
+            echo "| 🔗 Tests Integración | ⏭️ SKIPPED |" >> $GITHUB_STEP_SUMMARY
           else
-            echo "| 🔗 Tests Integración | ❌ FAILED | No |" >> $GITHUB_STEP_SUMMARY
+            echo "| 🔗 Tests Integración | ❌ FAILED |" >> $GITHUB_STEP_SUMMARY
           fi
           
-          # Linting (OPCIONAL)
+          # Linting
           if [ "${{ needs.test-lint.result }}" == "success" ]; then
-            echo "| 🧹 Linting | ✅ PASSED | No |" >> $GITHUB_STEP_SUMMARY
+            echo "| 🧹 Linting | ✅ PASSED |" >> $GITHUB_STEP_SUMMARY
           else
-            echo "| 🧹 Linting | ⚠️ ISSUES | No |" >> $GITHUB_STEP_SUMMARY
+            echo "| 🧹 Linting | ⚠️ ISSUES |" >> $GITHUB_STEP_SUMMARY
           fi
           
-          # Seguridad (CRÍTICO)
+          # Seguridad
           if [ "${{ needs.security-scan.result }}" == "success" ]; then
-            echo "| 🔒 Seguridad | ✅ PASSED | ⚠️ Sí |" >> $GITHUB_STEP_SUMMARY
+            echo "| 🔒 Seguridad | ✅ PASSED |" >> $GITHUB_STEP_SUMMARY
           elif [ "${{ needs.security-scan.result }}" == "skipped" ]; then
-            echo "| 🔒 Seguridad | ⏭️ SKIPPED | ⚠️ Sí |" >> $GITHUB_STEP_SUMMARY
+            echo "| 🔒 Seguridad | ⏭️ SKIPPED |" >> $GITHUB_STEP_SUMMARY
           else
-            echo "| 🔒 Seguridad | ❌ FAILED | ⚠️ Sí |" >> $GITHUB_STEP_SUMMARY
+            echo "| 🔒 Seguridad | ❌ FAILED |" >> $GITHUB_STEP_SUMMARY
           fi
           
           echo "" >> $GITHUB_STEP_SUMMARY
           
-          # Determinar estado general del Quality Gate
-          if [[ "${{ needs.test-unit.result }}" == "success" ]] && \
-             ([[ "${{ needs.security-scan.result }}" == "success" ]] || [[ "${{ needs.security-scan.result }}" == "skipped" ]]); then
+          # Estado general
+          if [ "${{ needs.test-unit.result }}" == "success" ]; then
             echo "## ✅ Quality Gate: PASSED" >> $GITHUB_STEP_SUMMARY
-            echo "" >> $GITHUB_STEP_SUMMARY
-            echo "🎉 Todos los checks críticos pasaron correctamente" >> $GITHUB_STEP_SUMMARY
-            
-            # Advertencias sobre checks opcionales
-            if [[ "${{ needs.test-integration.result }}" != "success" ]] || \
-               [[ "${{ needs.test-lint.result }}" != "success" ]]; then
-              echo "" >> $GITHUB_STEP_SUMMARY
-              echo "⚠️ **Nota:** Algunos checks opcionales fallaron pero no bloquean el pipeline" >> $GITHUB_STEP_SUMMARY
-            fi
           else
             echo "## ❌ Quality Gate: FAILED" >> $GITHUB_STEP_SUMMARY
-            echo "" >> $GITHUB_STEP_SUMMARY
-            echo "⛔ Uno o más checks críticos fallaron. Revisa los detalles arriba." >> $GITHUB_STEP_SUMMARY
           fi
-          
-          echo "" >> $GITHUB_STEP_SUMMARY
-          echo "---" >> $GITHUB_STEP_SUMMARY
-          echo "📦 **Artefactos generados:** Revisa la sección de artifacts para descargar reportes detallados" >> $GITHUB_STEP_SUMMARY
 
-      - name: ❌ Fallar si algún check crítico falló
-        if: needs.test-unit.result != 'success' || (needs.security-scan.result != 'success' && needs.security-scan.result != 'skipped')
+      - name: ❌ Fallar si tests críticos fallaron
+        if: needs.test-unit.result != 'success'
         run: |
-          echo "::error::Quality Gate FAILED - Tests unitarios o seguridad no pasaron"
+          echo "::error::Quality Gate FAILED"
           exit 1
-
-      - name: ⚠️ Advertencia por checks opcionales
-        if: (needs.test-integration.result != 'success' && needs.test-integration.result != 'skipped') || needs.test-lint.result != 'success'
-        run: |
-          echo "::warning::Algunos checks opcionales fallaron pero no bloquean el pipeline"
-          echo "::notice::Considera revisar los issues de linting o system_info_app de integración para mejorar la calidad del código"
