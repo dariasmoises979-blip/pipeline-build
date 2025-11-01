@@ -1,0 +1,60 @@
+# ==========================================================
+# 🧭 Despliegue de n8n en entorno de desarrollo
+# ==========================================================
+# Archivo: values-dev.yaml
+# Descripción:
+#   Este archivo define la configuración de n8n para un entorno
+#   de desarrollo local o pruebas ligeras.
+#
+# Variables principales:
+#   - global.image.repository: repositorio de la imagen de n8n
+#   - global.image.tag: versión de la imagen
+#   - server.service.type: tipo de servicio Kubernetes (ClusterIP recomendado para dev)
+#   - server.ingress.*: configuración de ingreso HTTP/HTTPS (opcional)
+#   - env.*: variables de entorno de n8n
+#   - resources.*: recursos asignados a los pods
+#
+# Requisitos:
+#   - Clúster Kubernetes con acceso interno
+# ==========================================================
+
+global:
+  image:
+    repository: n8nio/n8n   # 🧩 Repositorio de la imagen
+    tag: 1.67.0             # 🧩 Versión de n8n
+
+server:
+  # ======================================================
+  # ⚙️ Configuración del servicio n8n
+  # ======================================================
+  service:
+    type: ClusterIP           # ClusterIP para desarrollo
+    port: 5678
+
+  # ======================================================
+  # 🌐 Ingress público (opcional)
+  # ======================================================
+  # ingress:
+  #   enabled: false
+  #   ingressClassName: ""
+  #   hosts: []
+  #   tls: []
+
+configs:
+  params:
+    # ======================================================
+    # 🔐 Variables de entorno n8n
+    # ======================================================
+    N8N_BASIC_AUTH_ACTIVE: "false"
+    GENERIC_TIMEZONE: "Europe/Madrid"
+    EXECUTIONS_DATA_SAVE_ON_ERROR: "all"
+    DB_TYPE: "sqlite"
+    DB_SQLITE_VACUUM_ON_STARTUP: "true"
+
+resources:
+  requests:
+    cpu: "200m"
+    memory: "256Mi"
+  limits:
+    cpu: "500m"
+    memory: "512Mi"
