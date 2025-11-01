@@ -150,7 +150,8 @@ jobs:
           echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
           echo "📂 DIRECTORY STRUCTURE VERIFICATION"
           echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-          
+          ls -la
+          pwd
           K8S_PATH="kubernetes/${{ inputs.environment }}/${{ inputs.project_name }}"
           HELM_PATH="helm/override/${{ inputs.environment }}"
           
