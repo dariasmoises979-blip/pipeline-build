@@ -629,12 +629,12 @@ jobs:
           fi
 
       - name: 🔎 Ejecutar análisis de SonarCloud
-        uses: SonarSource/sonarcloud-github-action@v2
+        uses: SonarSource/sonarcloud-github-action@v6
         with:
           projectBaseDir: ${{ inputs.external_repo_path }}
           args: ${{ inputs.sonar_args }}
         env:
-          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN_PIPELINE }}
           GITHUB_TOKEN: ${{ secrets.EXTERNAL_REPO_TOKEN }}
         continue-on-error: true
 
