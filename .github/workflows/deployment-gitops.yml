@@ -131,7 +131,20 @@ jobs:
           token: ${{ secrets.GH_TOKEN }}
           fetch-depth: 0
           ref: ${{ inputs.target_branch }}
-
+      
+      # ══════════════════════════════════════════════════════════ 
+      # PASO 2.1: CHECKOUT DE REPO EXTERNO 
+      # ══════════════════════════════════════════════════════════
+      - name: 📦 Checkout repository exter
+        uses: actions/checkout@v4
+        with:
+          token: ${{ secrets.GH_TOKEN }}
+          repository: dariasmoises979-blip/pipeline-build
+          fetch-depth: 0
+          ref: main
+          path: pipeline-build
+       
+     
       # ═══════════════════════════════════════════════════════════
       # 🔧 PASO 3: INSTALAR DEPENDENCIAS
       # ═══════════════════════════════════════════════════════════
@@ -147,6 +160,7 @@ jobs:
       - name: 🔍 Verify directory structure
         id: verify
         run: |
+          cd ${{ github.workspace }}/pipeline-build
           echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
           echo "📂 DIRECTORY STRUCTURE VERIFICATION"
           echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
