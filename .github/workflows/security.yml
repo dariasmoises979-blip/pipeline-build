@@ -1,11 +1,11 @@
 ########################################
 # 🛡️ WORKFLOW REUSABLE: Security & Performance Analysis
-# Escanea imágenes DIRECTAMENTE desde DockerHub
+# Escanea imágenes DIRECTAMENTE desde GCP Artifact Registry
 # Analiza seguridad, vulnerabilidades, código y rendimiento
 # security.yml
 ########################################
 
-name: DockerHub Security & Performance Analysis
+name: GCP Artifact Registry Security & Performance Analysis
 
 on:
   workflow_call:
@@ -16,15 +16,23 @@ on:
         type: string
         default: ''
       image_name:
-        description: "Nombre completo de la imagen en DockerHub (ej: usuario/imagen)"
+        description: "Nombre de la imagen (ej: mi-aplicacion)"
         required: true
         type: string
       image_tag:
         description: "Tag de la imagen a analizar"
         required: true
         type: string
-      dockerhub_username:
-        description: "Usuario de DockerHub"
+      gcp_project_id:
+        description: "ID del proyecto de GCP"
+        required: true
+        type: string
+      gcp_region:
+        description: "Región de GCP (ej: us-central1)"
+        required: true
+        type: string
+      artifact_registry:
+        description: "Nombre del Artifact Registry"
         required: true
         type: string
       enable_code_analysis:
@@ -48,9 +56,9 @@ on:
         type: string
         default: "main"
     secrets:
-      DOCKERHUB_TOKEN:
+      GCP_SA_KEY:
         required: true
-        description: "Token de DockerHub (opcional, para imágenes privadas)"
+        description: "Service Account Key de GCP en formato JSON"
       SONAR_TOKEN:
         required: false
 
@@ -93,10 +101,10 @@ jobs:
           category: "/language:multi"
 
   # ═══════════════════════════════════════════════════════════
-  # 🐳 JOB 2: PULL DE IMAGEN DESDE DOCKERHUB
+  # 🐳 JOB 2: PULL DE IMAGEN DESDE GCP ARTIFACT REGISTRY
   # ═══════════════════════════════════════════════════════════
   pull-image:
-    name: 📥 Descargar Imagen desde DockerHub
+    name: 📥 Descargar Imagen desde GCP
     runs-on: ubuntu-latest
     outputs:
       image_full: ${{ steps.pull.outputs.image_full }}
@@ -104,28 +112,36 @@ jobs:
       image_digest: ${{ steps.inspect.outputs.digest }}
 
     steps:
-      - name: 🔐 Login en DockerHub
-        uses: docker/login-action@v3
+      - name: 🔐 Autenticar con GCP
+        uses: google-github-actions/auth@v2
         with:
-          username: ${{ inputs.dockerhub_username }}
-          password: ${{ secrets.DOCKERHUB_TOKEN }}
-          logout: true
+          credentials_json: ${{ secrets.GCP_SA_KEY }}
 
-      - name: 📥 Pull de imagen desde DockerHub
+      - name: ☁️ Configurar Cloud SDK
+        uses: google-github-actions/setup-gcloud@v2
+
+      - name: 🔑 Configurar Docker para GCP Artifact Registry
+        run: |
+          gcloud auth configure-docker ${{ inputs.gcp_region }}-docker.pkg.dev
+
+      - name: 📥 Pull de imagen desde GCP Artifact Registry
         id: pull
         run: |
-          IMAGE_FULL="${{ inputs.image_name }}:${{ inputs.image_tag }}"
+          IMAGE_FULL="${{ inputs.gcp_region }}-docker.pkg.dev/${{ inputs.gcp_project_id }}/${{ inputs.artifact_registry }}/${{ inputs.image_name }}:${{ inputs.image_tag }}"
           echo "🔽 Descargando imagen: $IMAGE_FULL"
           docker pull $IMAGE_FULL
           echo "image_full=$IMAGE_FULL" >> $GITHUB_OUTPUT
           
           echo "### 📥 Imagen Descargada" >> $GITHUB_STEP_SUMMARY
           echo "- **Imagen**: \`$IMAGE_FULL\`" >> $GITHUB_STEP_SUMMARY
+          echo "- **Registry**: GCP Artifact Registry" >> $GITHUB_STEP_SUMMARY
+          echo "- **Proyecto**: ${{ inputs.gcp_project_id }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **Región**: ${{ inputs.gcp_region }}" >> $GITHUB_STEP_SUMMARY
 
       - name: 🔍 Inspeccionar imagen
         id: inspect
         run: |
-          IMAGE_FULL="${{ inputs.image_name }}:${{ inputs.image_tag }}"
+          IMAGE_FULL="${{ inputs.gcp_region }}-docker.pkg.dev/${{ inputs.gcp_project_id }}/${{ inputs.artifact_registry }}/${{ inputs.image_name }}:${{ inputs.image_tag }}"
           
           # Obtener tamaño
           SIZE=$(docker images $IMAGE_FULL --format "{{.Size}}")
@@ -155,14 +171,22 @@ jobs:
           echo "### 🔍 Debug - Parámetros Recibidos" >> $GITHUB_STEP_SUMMARY
           echo "- **image_name**: ${{ inputs.image_name }}" >> $GITHUB_STEP_SUMMARY
           echo "- **image_tag**: ${{ inputs.image_tag }}" >> $GITHUB_STEP_SUMMARY
-          echo "- **dockerhub_username**: ${{ inputs.dockerhub_username }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **gcp_project_id**: ${{ inputs.gcp_project_id }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **gcp_region**: ${{ inputs.gcp_region }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **artifact_registry**: ${{ inputs.artifact_registry }}" >> $GITHUB_STEP_SUMMARY
           echo "- **image_full**: ${{ needs.pull-image.outputs.image_full }}" >> $GITHUB_STEP_SUMMARY
 
-      - name: 🔐 Login en DockerHub
-        uses: docker/login-action@v3
+      - name: 🔐 Autenticar con GCP
+        uses: google-github-actions/auth@v2
         with:
-          username: ${{ inputs.dockerhub_username }}
-          password: ${{ secrets.DOCKERHUB_TOKEN }}
+          credentials_json: ${{ secrets.GCP_SA_KEY }}
+
+      - name: ☁️ Configurar Cloud SDK
+        uses: google-github-actions/setup-gcloud@v2
+
+      - name: 🔑 Configurar Docker para GCP
+        run: |
+          gcloud auth configure-docker ${{ inputs.gcp_region }}-docker.pkg.dev
 
       - name: 📥 Pull de imagen
         run: |
@@ -232,14 +256,13 @@ jobs:
           args: --severity-threshold=high --file=Dockerfile
 
       # ─────────────────────────────────────────────────────
-      # DOCKLE - Best Practices de Docker (VERSIÓN CORREGIDA)
+      # DOCKLE - Best Practices de Docker
       # ─────────────────────────────────────────────────────
       - name: 🐋 Dockle - Docker Best Practices
-        continue-on-error: true  # No fallar el workflow si Dockle falla
+        continue-on-error: true
         run: |
           echo "### 🐋 Dockle - Docker Best Practices" >> $GITHUB_STEP_SUMMARY
           
-          # Intentar obtener la última versión
           VERSION=$(curl --silent --fail "https://api.github.com/repos/goodwithtech/dockle/releases/latest" | \
             grep '"tag_name":' | sed -E 's/.*"v([^"]+)".*/\1/' || echo "0.4.14")
           
@@ -250,17 +273,14 @@ jobs:
           
           echo "📦 Descargando Dockle v${VERSION}..." >> $GITHUB_STEP_SUMMARY
           
-          # Descargar Dockle
           DOCKLE_URL="https://github.com/goodwithtech/dockle/releases/download/v${VERSION}/dockle_${VERSION}_Linux-64bit.deb"
           
           if curl -fL -o dockle.deb "$DOCKLE_URL"; then
             echo "✅ Descarga exitosa" >> $GITHUB_STEP_SUMMARY
             
-            # Instalar
             if sudo dpkg -i dockle.deb 2>/dev/null; then
               echo "✅ Instalación exitosa" >> $GITHUB_STEP_SUMMARY
               
-              # Ejecutar escaneo
               echo '```' >> $GITHUB_STEP_SUMMARY
               dockle --exit-code 0 --exit-level warn ${{ needs.pull-image.outputs.image_full }} | tee dockle-report.txt || true
               cat dockle-report.txt >> $GITHUB_STEP_SUMMARY
@@ -282,7 +302,6 @@ jobs:
           echo "## 🔐 Resumen de Seguridad" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
           
-          # Contar vulnerabilidades por severidad en Trivy
           if [ -f trivy-report.json ]; then
             CRITICAL=$(jq '[.Results[]?.Vulnerabilities[]? | select(.Severity=="CRITICAL")] | length' trivy-report.json)
             HIGH=$(jq '[.Results[]?.Vulnerabilities[]? | select(.Severity=="HIGH")] | length' trivy-report.json)
@@ -302,24 +321,23 @@ jobs:
       - name: Determine artifact name
         id: artifact
         run: |
-            if [ -n "${{ inputs.artifact_name }}" ]; then
-              ARTIFACT_NAME="${{ inputs.artifact_name }}"
-            else
-              ARTIFACT_NAME="security-reports-${{ inputs.image_tag }}-${{ github.run_id }}"
-            fi
-            echo "artifact_name=${ARTIFACT_NAME}" >> $GITHUB_OUTPUT
+          if [ -n "${{ inputs.artifact_name }}" ]; then
+            ARTIFACT_NAME="${{ inputs.artifact_name }}"
+          else
+            ARTIFACT_NAME="security-reports-${{ inputs.image_tag }}-${{ github.run_id }}"
+          fi
+          echo "artifact_name=${ARTIFACT_NAME}" >> $GITHUB_OUTPUT
 
       - name: Upload Security Reports
         uses: actions/upload-artifact@v4
         if: always()
         with:
-            name: ${{ steps.artifact.outputs.artifact_name }}  # 🆕 CAMBIAR ESTO
-            path: |
-              trivy-results.sarif
-              trivy-report-${{ inputs.image_tag }}.json
-              dockle-report-${{ inputs.image_tag }}.json
-              dockle-report-${{ inputs.image_tag }}.txt
-            retention-days: 30
+          name: ${{ steps.artifact.outputs.artifact_name }}
+          path: |
+            trivy-results.sarif
+            trivy-report.json
+            dockle-report.txt
+          retention-days: 30
 
   # ═══════════════════════════════════════════════════════════
   # ⚙️ JOB 4: ANÁLISIS DE RENDIMIENTO Y OPTIMIZACIÓN
@@ -330,12 +348,17 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      - name: 🔐 Login en DockerHub
-        uses: docker/login-action@v3
+      - name: 🔐 Autenticar con GCP
+        uses: google-github-actions/auth@v2
         with:
-          username: ${{ inputs.dockerhub_username }}
-          password: ${{ secrets.DOCKERHUB_TOKEN }}
-          logout: true
+          credentials_json: ${{ secrets.GCP_SA_KEY }}
+
+      - name: ☁️ Configurar Cloud SDK
+        uses: google-github-actions/setup-gcloud@v2
+
+      - name: 🔑 Configurar Docker para GCP
+        run: |
+          gcloud auth configure-docker ${{ inputs.gcp_region }}-docker.pkg.dev
 
       - name: 📥 Pull de imagen
         run: |
@@ -350,6 +373,7 @@ jobs:
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "### 📦 Información General" >> $GITHUB_STEP_SUMMARY
           echo "- **Tamaño**: ${{ needs.pull-image.outputs.image_size }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **Registry**: GCP Artifact Registry" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
           
           echo "### 🗂️ Capas de la Imagen" >> $GITHUB_STEP_SUMMARY
@@ -369,7 +393,6 @@ jobs:
           echo "### 🔍 Dive - Eficiencia de Imagen" >> $GITHUB_STEP_SUMMARY
           CI=true dive ${{ needs.pull-image.outputs.image_full }} 2>&1 | tee dive-report.txt
           
-          # Extraer métricas clave
           EFFICIENCY=$(grep -oP 'Image efficiency score: \K[0-9]+' dive-report.txt || echo "N/A")
           WASTED=$(grep -oP 'Total Image size: .* \(waste: \K[^\)]+' dive-report.txt || echo "N/A")
           
@@ -385,11 +408,9 @@ jobs:
           chmod +x container-structure-test-linux-amd64
           sudo mv container-structure-test-linux-amd64 /usr/local/bin/container-structure-test
           
-          # Crear configuración de pruebas
           cat > container-test.yaml << 'EOF'
           schemaVersion: 2.0.0
           
-          # Pruebas de existencia de archivos
           fileExistenceTests:
             - name: 'Root Directory'
               path: '/'
@@ -398,13 +419,11 @@ jobs:
               path: '/tmp'
               shouldExist: true
           
-          # Pruebas de contenido de archivos
           fileContentTests:
             - name: 'Check /etc/os-release exists'
               path: '/etc/os-release'
               expectedContents: ['.*']
           
-          # Metadata tests
           metadataTest:
             env: []
           EOF
@@ -421,12 +440,12 @@ jobs:
         if: always()
         continue-on-error: true
         with:
-            name: performance-reports-${{ inputs.image_tag }}
-            path: |
-              dive-report.txt
-              structure-test.txt
-            retention-days: 30
-            if-no-files-found: warn
+          name: performance-reports-${{ inputs.image_tag }}
+          path: |
+            dive-report.txt
+            structure-test.txt
+          retention-days: 30
+          if-no-files-found: warn
 
   # ═══════════════════════════════════════════════════════════
   # 🚀 JOB 5: PRUEBAS DE RENDIMIENTO EN RUNTIME
@@ -437,12 +456,17 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      - name: 🔐 Login en DockerHub
-        uses: docker/login-action@v3
+      - name: 🔐 Autenticar con GCP
+        uses: google-github-actions/auth@v2
         with:
-          username: ${{ inputs.dockerhub_username }}
-          password: ${{ secrets.DOCKERHUB_TOKEN }}
-          logout: true
+          credentials_json: ${{ secrets.GCP_SA_KEY }}
+
+      - name: ☁️ Configurar Cloud SDK
+        uses: google-github-actions/setup-gcloud@v2
+
+      - name: 🔑 Configurar Docker para GCP
+        run: |
+          gcloud auth configure-docker ${{ inputs.gcp_region }}-docker.pkg.dev
 
       - name: 📥 Pull de imagen
         run: |
@@ -457,7 +481,6 @@ jobs:
           echo "## 🚀 Análisis de Runtime" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
           
-          # Múltiples mediciones para precisión
           TOTAL=0
           RUNS=3
           
@@ -467,7 +490,6 @@ jobs:
             START=$(date +%s%N)
             CONTAINER_ID=$(docker run -d ${{ needs.pull-image.outputs.image_full }} sleep 5)
             
-            # Esperar a que el contenedor esté corriendo
             timeout 30 sh -c "until docker ps | grep -q $CONTAINER_ID; do sleep 0.1; done" || true
             
             END=$(date +%s%N)
@@ -493,13 +515,10 @@ jobs:
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "### 💻 Uso de Recursos" >> $GITHUB_STEP_SUMMARY
           
-          # Iniciar contenedor con carga
           CONTAINER_ID=$(docker run -d ${{ needs.pull-image.outputs.image_full }} sleep 300)
           
-          # Esperar estabilización
           sleep 10
           
-          # Capturar estadísticas múltiples veces
           echo "| Métrica | Valor |" >> $GITHUB_STEP_SUMMARY
           echo "|---------|-------|" >> $GITHUB_STEP_SUMMARY
           
@@ -516,7 +535,6 @@ jobs:
             sleep 2
           done
           
-          # Métricas finales
           FINAL_STATS=$(docker stats --no-stream --format "{{.CPUPerc}}\t{{.MemUsage}}\t{{.PIDs}}" $CONTAINER_ID)
           PIDS=$(echo $FINAL_STATS | awk '{print $3}')
           echo "| Procesos | $PIDS |" >> $GITHUB_STEP_SUMMARY
@@ -583,6 +601,9 @@ jobs:
           
           ## 📋 Información de la Imagen
           - **Imagen**: `${{ needs.pull-image.outputs.image_full }}`
+          - **Registry**: GCP Artifact Registry
+          - **Proyecto**: ${{ inputs.gcp_project_id }}
+          - **Región**: ${{ inputs.gcp_region }}
           - **Tamaño**: ${{ needs.pull-image.outputs.image_size }}
           - **Digest**: `${{ needs.pull-image.outputs.image_digest }}`
           - **Fecha de análisis**: $(date -u +"%Y-%m-%d %H:%M:%S UTC")

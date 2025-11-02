@@ -1,11 +1,11 @@
 ########################################
-# 🔄 WORKFLOW REUSABLE: Find Latest Image & Update K8s
-# Busca la última imagen en Docker Hub creada por el pipeline
+# 🔄 WORKFLOW REUSABLE: Find Latest Image & Update K8s (GCP)
+# Busca la última imagen en GCP Artifact Registry creada por el pipeline
 # y actualiza los manifiestos de Kubernetes automáticamente
 # deployment-qa.yml
 ########################################
 
-name: Reusable Find & Update K8s Images
+name: Reusable Find & Update K8s Images (GCP)
 
 # 🔧 Definir como workflow reusable con inputs configurables
 on:
@@ -15,8 +15,16 @@ on:
         description: 'Nombre de la imagen Docker (sin tag, ej: mi-app)'
         required: true
         type: string
-      dockerhub_username:
-        description: 'Usuario de Docker Hub (texto literal, no secret)'
+      gcp_project_id:
+        description: 'ID del proyecto de GCP'
+        required: true
+        type: string
+      gcp_region:
+        description: 'Región de GCP donde está el Artifact Registry (ej: us-central1)'
+        required: true
+        type: string
+      artifact_registry:
+        description: 'Nombre del repositorio de Artifact Registry'
         required: true
         type: string
       environment:
@@ -54,20 +62,36 @@ on:
         type: string
         default: ''
     secrets:
-      DOCKERHUB_TOKEN:
-        description: 'Token de Docker Hub para consultar API'
+      GCP_SA_KEY:
+        description: 'Service Account Key JSON de GCP para autenticación'
         required: true
       GH_PAT:
         description: 'Personal Access Token para hacer commits (opcional si se usa GITHUB_TOKEN)'
         required: false
+
+    outputs:
+      full_image:
+        description: 'Imagen completa actualizada'
+        value: ${{ jobs.find-and-update.outputs.full_image }}
+      image_tag:
+        description: 'Tag de la imagen'
+        value: ${{ jobs.find-and-update.outputs.image_tag }}
+      files_updated:
+        description: 'Número de archivos actualizados'
+        value: ${{ jobs.find-and-update.outputs.files_updated }}
 
 jobs:
   # ═══════════════════════════════════════════════════════════
   # 🔍 JOB: FIND LATEST IMAGE & UPDATE K8S MANIFESTS
   # ═══════════════════════════════════════════════════════════
   find-and-update:
-    name: Find Latest Image & Update K8s
+    name: Find Latest Image & Update K8s (GCP)
     runs-on: ubuntu-latest
+    
+    outputs:
+      full_image: ${{ steps.find_image.outputs.full_image }}
+      image_tag: ${{ steps.find_image.outputs.tag }}
+      files_updated: ${{ steps.update.outputs.files_updated }}
     
     steps:
       # ═══════════════════════════════════════════════════════════
@@ -81,22 +105,47 @@ jobs:
           ref: ${{ inputs.target_branch || github.ref }}
 
       # ═══════════════════════════════════════════════════════════
-      # 🐳 PASO 2: BUSCAR ÚLTIMA IMAGEN EN DOCKER HUB
+      # 🔐 PASO 2: AUTENTICACIÓN CON GCP
       # ═══════════════════════════════════════════════════════════
-      - name: Find latest Docker image
+      - name: Authenticate to Google Cloud
+        uses: google-github-actions/auth@v2
+        with:
+          credentials_json: ${{ secrets.GCP_SA_KEY }}
+
+      # ═══════════════════════════════════════════════════════════
+      # ⚙️ PASO 3: CONFIGURAR GCLOUD CLI
+      # ═══════════════════════════════════════════════════════════
+      - name: Set up Cloud SDK
+        uses: google-github-actions/setup-gcloud@v2
+        with:
+          project_id: ${{ inputs.gcp_project_id }}
+
+      # ═══════════════════════════════════════════════════════════
+      # 🐳 PASO 4: BUSCAR ÚLTIMA IMAGEN EN GCP ARTIFACT REGISTRY
+      # ═══════════════════════════════════════════════════════════
+      - name: Find latest image in GCP Artifact Registry
         id: find_image
         env:
-          DOCKERHUB_TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}
-          DOCKERHUB_USERNAME: ${{ inputs.dockerhub_username }}
+          GCP_PROJECT_ID: ${{ inputs.gcp_project_id }}
+          GCP_REGION: ${{ inputs.gcp_region }}
+          ARTIFACT_REGISTRY: ${{ inputs.artifact_registry }}
           DOCKER_IMAGE: ${{ inputs.docker_image }}
           ENVIRONMENT: ${{ inputs.environment }}
           TAG_PATTERN: ${{ inputs.tag_pattern }}
         run: |
           echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-          echo "🔍 BUSCANDO ÚLTIMA IMAGEN EN DOCKER HUB"
+          echo "🔍 BUSCANDO ÚLTIMA IMAGEN EN GCP ARTIFACT REGISTRY"
           echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-          echo "📦 Repositorio: ${DOCKERHUB_USERNAME}/${DOCKER_IMAGE}"
+          echo "☁️  Proyecto: ${GCP_PROJECT_ID}"
+          echo "📍 Región: ${GCP_REGION}"
+          echo "📦 Registry: ${ARTIFACT_REGISTRY}"
+          echo "🐳 Imagen: ${DOCKER_IMAGE}"
           echo "🌍 Entorno: ${ENVIRONMENT}"
+          
+          # Construir la ruta completa del repositorio
+          REGISTRY_URL="${GCP_REGION}-docker.pkg.dev"
+          REPOSITORY_PATH="${GCP_PROJECT_ID}/${ARTIFACT_REGISTRY}/${DOCKER_IMAGE}"
+          FULL_REPO="${REGISTRY_URL}/${REPOSITORY_PATH}"
           
           # Determinar patrón de búsqueda
           if [[ -n "${TAG_PATTERN}" ]]; then
@@ -107,50 +156,56 @@ jobs:
           echo "🔎 Patrón de búsqueda: ${SEARCH_PATTERN}*"
           echo ""
           
-          # Obtener token de Docker Hub
-          echo "🔐 Obteniendo token de autenticación..."
-          TOKEN_RESPONSE=$(curl -s -X POST \
-            -H "Content-Type: application/json" \
-            -d "{\"username\":\"${DOCKERHUB_USERNAME}\",\"password\":\"${DOCKERHUB_TOKEN}\"}" \
-            https://hub.docker.com/v2/users/login/)
+          # Listar todas las imágenes del repositorio
+          echo "📋 Consultando imágenes disponibles..."
           
-          HUB_TOKEN=$(echo "${TOKEN_RESPONSE}" | jq -r '.token // empty')
+          # Obtener lista de tags con gcloud
+          TAGS_OUTPUT=$(gcloud artifacts docker tags list "${FULL_REPO}" \
+            --format="json" \
+            --sort-by="~UPDATE_TIME" \
+            2>&1)
           
-          if [[ -z "${HUB_TOKEN}" || "${HUB_TOKEN}" == "null" ]]; then
-            echo "❌ Error: No se pudo obtener token de Docker Hub"
-            echo "Respuesta: ${TOKEN_RESPONSE}"
+          if [[ $? -ne 0 ]]; then
+            echo "❌ Error al consultar Artifact Registry:"
+            echo "${TAGS_OUTPUT}"
+            echo ""
+            echo "🔍 Verifica que:"
+            echo "   • El repositorio existe: ${FULL_REPO}"
+            echo "   • La imagen existe en el repositorio"
+            echo "   • El Service Account tiene permisos de lectura"
+            echo "   • El API de Artifact Registry está habilitado"
             exit 1
           fi
           
-          echo "✅ Token obtenido exitosamente"
+          # Verificar si hay tags disponibles
+          TAG_COUNT=$(echo "${TAGS_OUTPUT}" | jq '. | length')
+          
+          if [[ "${TAG_COUNT}" -eq 0 ]]; then
+            echo "❌ No se encontraron tags en el repositorio"
+            exit 1
+          fi
+          
+          echo "✅ Encontrados ${TAG_COUNT} tags totales"
           echo ""
           
-          # Consultar tags de la imagen
-          echo "📋 Consultando tags disponibles..."
-          TAGS_RESPONSE=$(curl -s -H "Authorization: Bearer ${HUB_TOKEN}" \
-            "https://hub.docker.com/v2/repositories/${DOCKERHUB_USERNAME}/${DOCKER_IMAGE}/tags?page_size=100")
-          
-          # Verificar si hay error
-          if echo "${TAGS_RESPONSE}" | jq -e '.message' > /dev/null 2>&1; then
-            echo "❌ Error al consultar Docker Hub:"
-            echo "${TAGS_RESPONSE}" | jq -r '.message'
-            exit 1
-          fi
-          
-          # Filtrar tags que coincidan con el patrón del entorno
+          # Filtrar tags que coincidan con el patrón
           echo "🔎 Filtrando tags con patrón '${SEARCH_PATTERN}'..."
-          MATCHING_TAGS=$(echo "${TAGS_RESPONSE}" | jq -r --arg pattern "${SEARCH_PATTERN}" \
-            '.results[] | select(.name | startswith($pattern)) | "\(.last_updated)|\(.name)"' | sort -r)
+          
+          # Extraer solo el tag (última parte después de :) y filtrar por patrón
+          MATCHING_TAGS=$(echo "${TAGS_OUTPUT}" | jq -r --arg pattern "${SEARCH_PATTERN}" \
+            '.[] | select(.tag | startswith($pattern)) | "\(.updateTime)|\(.tag)"' | sort -r)
           
           if [[ -z "${MATCHING_TAGS}" ]]; then
             echo "❌ No se encontraron tags que coincidan con el patrón '${SEARCH_PATTERN}'"
             echo ""
-            echo "📋 Tags disponibles:"
-            echo "${TAGS_RESPONSE}" | jq -r '.results[].name' | head -20
+            echo "📋 Primeros 20 tags disponibles:"
+            echo "${TAGS_OUTPUT}" | jq -r '.[].tag' | head -20
+            echo ""
+            echo "💡 Sugerencia: Verifica el patrón de búsqueda o el entorno especificado"
             exit 1
           fi
           
-          echo "✅ Tags encontrados:"
+          echo "✅ Tags encontrados que coinciden:"
           echo "${MATCHING_TAGS}" | head -10
           echo ""
           
@@ -158,7 +213,8 @@ jobs:
           LATEST_TAG=$(echo "${MATCHING_TAGS}" | head -1 | cut -d'|' -f2)
           LATEST_DATE=$(echo "${MATCHING_TAGS}" | head -1 | cut -d'|' -f1)
           
-          FULL_IMAGE="${DOCKERHUB_USERNAME}/${DOCKER_IMAGE}:${LATEST_TAG}"
+          # Construir la imagen completa
+          FULL_IMAGE="${FULL_REPO}:${LATEST_TAG}"
           
           echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
           echo "✅ IMAGEN MÁS RECIENTE ENCONTRADA"
@@ -166,16 +222,20 @@ jobs:
           echo "🐳 Imagen completa: ${FULL_IMAGE}"
           echo "🏷️  Tag: ${LATEST_TAG}"
           echo "📅 Fecha: ${LATEST_DATE}"
-          echo "🔗 Docker Hub: https://hub.docker.com/r/${DOCKERHUB_USERNAME}/${DOCKER_IMAGE}/tags"
+          echo "📍 Registry: ${REGISTRY_URL}"
+          echo "📦 Repositorio: ${REPOSITORY_PATH}"
+          echo "🔗 GCP Console: https://console.cloud.google.com/artifacts/docker/${GCP_PROJECT_ID}/${GCP_REGION}/${ARTIFACT_REGISTRY}/${DOCKER_IMAGE}"
           echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
           
           # Guardar outputs
           echo "full_image=${FULL_IMAGE}" >> $GITHUB_OUTPUT
           echo "tag=${LATEST_TAG}" >> $GITHUB_OUTPUT
           echo "updated_date=${LATEST_DATE}" >> $GITHUB_OUTPUT
+          echo "registry_url=${REGISTRY_URL}" >> $GITHUB_OUTPUT
+          echo "repository_path=${REPOSITORY_PATH}" >> $GITHUB_OUTPUT
 
       # ═══════════════════════════════════════════════════════════
-      # 🔍 PASO 3: VERIFICAR ESTRUCTURA DE MANIFIESTOS
+      # 🔍 PASO 5: VERIFICAR ESTRUCTURA DE MANIFIESTOS
       # ═══════════════════════════════════════════════════════════
       - name: Verify manifests structure
         run: |
@@ -198,7 +258,7 @@ jobs:
           echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
 
       # ═══════════════════════════════════════════════════════════
-      # 🔄 PASO 4: ACTUALIZAR IMÁGENES EN MANIFIESTOS
+      # 🔄 PASO 6: ACTUALIZAR IMÁGENES EN MANIFIESTOS
       # ═══════════════════════════════════════════════════════════
       - name: Update image tags in manifests
         id: update
@@ -206,7 +266,8 @@ jobs:
           MANIFESTS_PATH: ${{ inputs.k8s_manifests_path }}
           FULL_IMAGE: ${{ steps.find_image.outputs.full_image }}
           DOCKER_IMAGE: ${{ inputs.docker_image }}
-          DOCKERHUB_USER: ${{ inputs.dockerhub_username }}
+          REGISTRY_URL: ${{ steps.find_image.outputs.registry_url }}
+          REPOSITORY_PATH: ${{ steps.find_image.outputs.repository_path }}
         run: |
           echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
           echo "🔄 ACTUALIZANDO MANIFIESTOS KUBERNETES"
@@ -217,6 +278,9 @@ jobs:
             exit 1
           fi
           
+          # Construir patrón base para buscar (sin el tag)
+          IMAGE_BASE="${REGISTRY_URL}/${REPOSITORY_PATH}"
+          
           # Buscar y actualizar archivos YAML
           FILES_UPDATED=0
           TOTAL_REPLACEMENTS=0
@@ -226,20 +290,20 @@ jobs:
             echo "📄 Procesando: ${file}"
             
             # Buscar líneas con 'image:' que contengan la imagen objetivo
-            if grep -q "image:.*${DOCKERHUB_USER}/${DOCKER_IMAGE}" "${file}"; then
+            if grep -q "image:.*${IMAGE_BASE}" "${file}"; then
               # Crear backup
               cp "${file}" "${file}.bak"
               
               # Contar ocurrencias antes
-              BEFORE_COUNT=$(grep -c "image:.*${DOCKERHUB_USER}/${DOCKER_IMAGE}" "${file}" || echo "0")
+              BEFORE_COUNT=$(grep -c "image:.*${IMAGE_BASE}" "${file}" || echo "0")
               
               # Actualizar imagen usando sed
-              # Busca: image: usuario/imagen:cualquier-tag
-              # Reemplaza por: image: usuario/imagen:nuevo-tag
-              sed -i "s|image: ${DOCKERHUB_USER}/${DOCKER_IMAGE}:.*|image: ${FULL_IMAGE}|g" "${file}"
+              # Busca: image: region-docker.pkg.dev/project/registry/image:cualquier-tag
+              # Reemplaza por: image: region-docker.pkg.dev/project/registry/image:nuevo-tag
+              sed -i "s|image: ${IMAGE_BASE}:.*|image: ${FULL_IMAGE}|g" "${file}"
               
               # También manejar casos sin espacios después de ':'
-              sed -i "s|image:${DOCKERHUB_USER}/${DOCKER_IMAGE}:.*|image: ${FULL_IMAGE}|g" "${file}"
+              sed -i "s|image:${IMAGE_BASE}:.*|image: ${FULL_IMAGE}|g" "${file}"
               
               # Contar ocurrencias después
               AFTER_COUNT=$(grep -c "image: ${FULL_IMAGE}" "${file}" || echo "0")
@@ -257,7 +321,7 @@ jobs:
                 mv "${file}.bak" "${file}"  # Restaurar si no hubo cambios
               fi
             else
-              echo "   ⏭️  No contiene la imagen ${DOCKERHUB_USER}/${DOCKER_IMAGE}"
+              echo "   ⏭️  No contiene la imagen ${IMAGE_BASE}"
             fi
           done < <(find "${MANIFESTS_PATH}" -type f \( -name "*.yaml" -o -name "*.yml" \) -print0)
           
@@ -278,7 +342,7 @@ jobs:
           echo "total_replacements=${TOTAL_REPLACEMENTS}" >> $GITHUB_OUTPUT
 
       # ═══════════════════════════════════════════════════════════
-      # 📊 PASO 5: VERIFICAR CAMBIOS
+      # 📊 PASO 7: VERIFICAR CAMBIOS
       # ═══════════════════════════════════════════════════════════
       - name: Check for changes
         id: git_status
@@ -297,7 +361,7 @@ jobs:
           fi
 
       # ═══════════════════════════════════════════════════════════
-      # 🔐 PASO 6: CONFIGURAR GIT
+      # 🔐 PASO 8: CONFIGURAR GIT
       # ═══════════════════════════════════════════════════════════
       - name: Configure Git
         if: steps.git_status.outputs.has_changes == 'true'
@@ -306,7 +370,7 @@ jobs:
           git config --global user.email "${{ inputs.git_user_email }}"
 
       # ═══════════════════════════════════════════════════════════
-      # 💾 PASO 7A: COMMIT DIRECTO (si create_pr = false)
+      # 💾 PASO 9A: COMMIT DIRECTO (si create_pr = false)
       # ═══════════════════════════════════════════════════════════
       - name: Commit and push changes
         if: steps.git_status.outputs.has_changes == 'true' && inputs.create_pr == false
@@ -321,6 +385,8 @@ jobs:
           - Image: ${{ steps.find_image.outputs.full_image }}
           - Environment: ${ENVIRONMENT}
           - Image Date: ${UPDATED_DATE}
+          - Registry: ${{ inputs.gcp_region }}-docker.pkg.dev
+          - Project: ${{ inputs.gcp_project_id }}
           - Files updated: ${{ steps.update.outputs.files_updated }}
           - Total replacements: ${{ steps.update.outputs.total_replacements }}
           - Triggered by: ${{ github.actor }}
@@ -334,7 +400,7 @@ jobs:
           echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
 
       # ═══════════════════════════════════════════════════════════
-      # 🔀 PASO 7B: CREAR PULL REQUEST (si create_pr = true)
+      # 🔀 PASO 9B: CREAR PULL REQUEST (si create_pr = true)
       # ═══════════════════════════════════════════════════════════
       - name: Create Pull Request
         if: steps.git_status.outputs.has_changes == 'true' && inputs.create_pr == true
@@ -347,18 +413,23 @@ jobs:
           delete-branch: true
           title: "🚀 Update K8s Image: ${{ inputs.docker_image }}:${{ steps.find_image.outputs.tag }}"
           body: |
-            ## 🐳 Kubernetes Image Update
+            ## 🐳 Kubernetes Image Update (GCP)
             
             **Environment:** `${{ inputs.environment }}`
             **New Image:** `${{ steps.find_image.outputs.full_image }}`
             **Image Date:** `${{ steps.find_image.outputs.updated_date }}`
+            
+            ### ☁️ GCP Details
+            - **Project:** `${{ inputs.gcp_project_id }}`
+            - **Region:** `${{ inputs.gcp_region }}`
+            - **Registry:** `${{ inputs.artifact_registry }}`
             
             ### 📊 Changes Summary
             - **Files Updated:** ${{ steps.update.outputs.files_updated }}
             - **Total Replacements:** ${{ steps.update.outputs.total_replacements }}
             
             ### 🔗 Related Links
-            - [Docker Hub Image](https://hub.docker.com/r/${{ inputs.dockerhub_username }}/${{ inputs.docker_image }}/tags)
+            - [GCP Artifact Registry](https://console.cloud.google.com/artifacts/docker/${{ inputs.gcp_project_id }}/${{ inputs.gcp_region }}/${{ inputs.artifact_registry }}/${{ inputs.docker_image }})
             - [Workflow Run](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }})
             
             ---
@@ -367,10 +438,11 @@ jobs:
             kubernetes
             deployment
             automated
+            gcp
             ${{ inputs.environment }}
 
       # ═══════════════════════════════════════════════════════════
-      # ✅ PASO 8: REPORTE FINAL
+      # ✅ PASO 10: REPORTE FINAL
       # ═══════════════════════════════════════════════════════════
       - name: Final Report
         if: always()
@@ -382,6 +454,9 @@ jobs:
           echo "🏷️  Tag: ${{ steps.find_image.outputs.tag }}"
           echo "📅 Fecha imagen: ${{ steps.find_image.outputs.updated_date }}"
           echo "🌍 Entorno: ${{ inputs.environment }}"
+          echo "☁️  GCP Project: ${{ inputs.gcp_project_id }}"
+          echo "📍 GCP Region: ${{ inputs.gcp_region }}"
+          echo "📦 Registry: ${{ inputs.artifact_registry }}"
           echo "📁 Archivos actualizados: ${{ steps.update.outputs.files_updated }}"
           echo "🔄 Reemplazos totales: ${{ steps.update.outputs.total_replacements }}"
           echo "💾 Cambios detectados: ${{ steps.git_status.outputs.has_changes }}"
@@ -390,3 +465,30 @@ jobs:
           echo "🕐 Fecha: $(date -u +'%Y-%m-%d %H:%M:%S UTC')"
           echo "🔗 Workflow: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
           echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+
+
+# ═══════════════════════════════════════════════════════════
+# 📖 EJEMPLO DE USO
+# ═══════════════════════════════════════════════════════════
+#
+# name: Update K8s Manifests
+#
+# on:
+#   workflow_dispatch:
+#
+# jobs:
+#   update-k8s:
+#     uses: ./.github/workflows/deployment-qa.yml
+#     with:
+#       docker_image: mi-app
+#       gcp_project_id: elite-ceremony-476307-s9
+#       gcp_region: us-central1
+#       artifact_registry: artifact_dariasmoises979
+#       environment: production
+#       k8s_manifests_path: kubernetes/overlays/production
+#       create_pr: false
+#     secrets:
+#       GCP_SA_KEY: ${{ secrets.GCP_SA_KEY }}
+#       GH_PAT: ${{ secrets.GH_PAT }}
+#
+# ═══════════════════════════════════════════════════════════
