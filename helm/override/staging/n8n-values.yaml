@@ -22,17 +22,14 @@ global:
   image:
     repository: n8nio/n8n
     tag: 1.67.0
-
 image:
-  repository: dariasmoises979/mi-aplicacion
-  tag: pre-abcdef1
+  repository: us-central1-docker.pkg.dev/elite-ceremony-476307-s9/artifact_dariasmoises979/mi-aplicacion
+  tag: staging-13e0f38
   pullPolicy: IfNotPresent
-
 server:
   service:
     type: ClusterIP
     port: 5678
-
   # Ingress habilitado para staging
   ingress:
     enabled: true
@@ -46,12 +43,11 @@ server:
       - hosts:
           - n8n-staging.midominio.com
         secretName: n8n-staging-tls
-
 configs:
   params:
     N8N_BASIC_AUTH_ACTIVE: "true"
-    N8N_BASIC_AUTH_USER: "user-staging"          # Se recomienda usar secretKeyRef
-    N8N_BASIC_AUTH_PASSWORD: "password-staging"  # Se recomienda usar secretKeyRef
+    N8N_BASIC_AUTH_USER: "user-staging" # Se recomienda usar secretKeyRef
+    N8N_BASIC_AUTH_PASSWORD: "password-staging" # Se recomienda usar secretKeyRef
     GENERIC_TIMEZONE: "Europe/Madrid"
     EXECUTIONS_DATA_SAVE_ON_ERROR: "all"
     DB_TYPE: "postgresdb"
@@ -59,7 +55,6 @@ configs:
     DB_POSTGRESDB_DATABASE: "n8n"
     DB_POSTGRESDB_USER: "n8nuser"
     DB_POSTGRESDB_PASSWORD: "n8npassword"
-
 resources:
   requests:
     cpu: "500m"
