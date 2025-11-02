@@ -71,7 +71,7 @@ permissions:
 
 jobs:
   gitops-deployment:
-    name: 🚀 GitOps Deploy - ${{ inputs.environment }}
+    name: 🚀 GitOps Deploy - qa
     runs-on: ubuntu-latest
     
     outputs:
@@ -91,7 +91,7 @@ jobs:
           echo "🚀 GITOPS DEPLOYMENT ORCHESTRATION (GCP)"
           echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
           echo "📦 Project: ${{ inputs.project_name }}"
-          echo "🌍 Environment: ${{ inputs.environment }}"
+          echo "🌍 Environment: qa"
           echo "☁️  GCP Project: ${{ inputs.gcp_project_id }}"
           echo "📍 Registry: ${{ inputs.gcp_region }}-docker.pkg.dev/${{ inputs.gcp_project_id }}/${{ inputs.artifact_registry }}"
           echo "🐳 Target Image: ${{ inputs.gcp_region }}-docker.pkg.dev/${{ inputs.gcp_project_id }}/${{ inputs.artifact_registry }}/${{ inputs.docker_image }}:${{ inputs.image_tag }}"
@@ -99,8 +99,8 @@ jobs:
           echo ""
           echo "📂 Target Repository: dariasmoises979-blip/pipeline-build"
           echo "📂 Expected paths:"
-          echo "   • Kubernetes: kubernetes/${{ inputs.environment }}/${{ inputs.project_name }}/"
-          echo "   • Helm: helm/override/${{ inputs.environment }}/"
+          echo "   • Kubernetes: kubernetes/qa/${{ inputs.project_name }}/"
+          echo "   • Helm: helm/override/qa/"
           echo ""
           echo "👤 Triggered by: ${{ github.actor }}"
           echo "🕐 Date: $(date -u +'%Y-%m-%d %H:%M:%S UTC')"
@@ -146,8 +146,8 @@ jobs:
           echo "📍 Current directory: $(pwd)"
           echo ""
           
-          K8S_PATH="kubernetes/${{ inputs.environment }}/${{ inputs.project_name }}"
-          HELM_PATH="helm/override/${{ inputs.environment }}"
+          K8S_PATH="kubernetes/qa/${{ inputs.project_name }}"
+          HELM_PATH="helm/override/qa"
           
           K8S_EXISTS=false
           HELM_EXISTS=false
@@ -398,7 +398,7 @@ jobs:
           echo ""
           
           # Crear commit
-          git commit -m "🔄 Update manifests - ${{ inputs.environment }} - ${{ inputs.image_tag }}" \
+          git commit -m "🔄 Update manifests - qa - ${{ inputs.image_tag }}" \
             -m "Project: ${{ inputs.project_name }}" \
             -m "Image: ${{ inputs.gcp_region }}-docker.pkg.dev/${{ inputs.gcp_project_id }}/${{ inputs.artifact_registry }}/${{ inputs.docker_image }}:${{ inputs.image_tag }}" \
             -m "K8s files: ${{ steps.consolidate.outputs.k8s_files_count }}" \
@@ -454,8 +454,8 @@ jobs:
           echo "   Helm files: ${{ steps.consolidate.outputs.helm_files_count }}"
           echo ""
           echo "📂 Kubernetes directory content:"
-          if [ -d "kubernetes/${{ inputs.environment }}/${{ inputs.project_name }}" ]; then
-            find "kubernetes/${{ inputs.environment }}/${{ inputs.project_name }}" -type f -name "*.yaml" -o -name "*.yml" | while read f; do
+          if [ -d "kubernetes/qa/${{ inputs.project_name }}" ]; then
+            find "kubernetes/qa/${{ inputs.project_name }}" -type f -name "*.yaml" -o -name "*.yml" | while read f; do
               echo "   📄 $f"
               echo "      Content:"
               grep -E "^\s*image:" "$f" || echo "      (no image field found)"
@@ -465,8 +465,8 @@ jobs:
           fi
           echo ""
           echo "📂 Helm directory content:"
-          if [ -d "helm/override/${{ inputs.environment }}" ]; then
-            find "helm/override/${{ inputs.environment }}" -type f -name "*values*.yaml" | while read f; do
+          if [ -d "helm/override/qa" ]; then
+            find "helm/override/qa" -type f -name "*values*.yaml" | while read f; do
               echo "   📄 $f"
               echo "      Repository:"
               yq eval '.image.repository' "$f" 2>/dev/null || echo "      (not found)"
@@ -518,7 +518,7 @@ jobs:
           echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
           echo "📊 DEPLOYMENT SUMMARY"
           echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-          echo "🌍 Environment: ${{ inputs.environment }}"
+          echo "🌍 Environment: qa"
           echo "📦 Project: ${{ inputs.project_name }}"
           echo "☁️  GCP Project: ${{ inputs.gcp_project_id }}"
           echo "📍 Registry: ${{ inputs.artifact_registry }}"
