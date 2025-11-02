@@ -1,7 +1,7 @@
 # build-image-hybrid.yml
 # 🎯 CAMBIO CRÍTICO: Prefijo "hybrid-" para evitar conflictos
 
-name: Hybrid Build & Security Pipeline
+name: Hybrid Build & Security Pipeline (GCP)
 
 on:
   workflow_call:
@@ -9,12 +9,22 @@ on:
       docker_image:
         required: true
         type: string
-      dockerhub_username:
-        required: true
-        type: string
       environment:
         required: true
         type: string
+
+      # Configuración GCP Artifact Registry
+      gcp_project_id:
+        required: true
+        type: string
+      gcp_region:
+        required: true
+        type: string
+      artifact_registry:
+        required: true
+        type: string
+
+      # Configuración del repo externo
       external_repo:
         required: true
         type: string
@@ -26,14 +36,17 @@ on:
         required: false
         type: string
         default: ./app-repo
+
+      # Rutas del build
       dockerfile_path:
         required: true
         type: string
       build_context:
         required: true
         type: string
+
     secrets:
-      DOCKERHUB_TOKEN:
+      GCP_SA_KEY:
         required: true
       EXTERNAL_REPO_TOKEN:
         required: true
@@ -64,33 +77,39 @@ jobs:
 
       - name: 🔍 Verificar repo clonado
         run: |
-            echo "Contenido de ${{ inputs.external_repo_path }}:"
-            ls -la ${{ inputs.external_repo_path }}
-            pwd
-            
-            echo -e "\nVerificando Dockerfile:"
-            DOCKERFILE_FULL_PATH="${{ inputs.external_repo_path }}/${{ inputs.dockerfile_path }}"
-            echo "Buscando: $DOCKERFILE_FULL_PATH"
-            test -f "$DOCKERFILE_FULL_PATH" && echo "✅ Dockerfile OK" || (echo "❌ Dockerfile no encontrado" && exit 1)
-      
+          echo "Contenido de ${{ inputs.external_repo_path }}:"
+          ls -la ${{ inputs.external_repo_path }}
+          DOCKERFILE_FULL_PATH="${{ inputs.external_repo_path }}/${{ inputs.dockerfile_path }}"
+          test -f "$DOCKERFILE_FULL_PATH" && echo "✅ Dockerfile OK" || (echo "❌ Dockerfile no encontrado" && exit 1)
+
       - name: 🐳 Setup Docker Buildx
         uses: docker/setup-buildx-action@v3
+
+      - name: 🔐 Autenticarse en GCP
+        id: auth
+        uses: google-github-actions/auth@v2
+        with:
+          credentials_json: ${{ secrets.GCP_SA_KEY }}
+
+      - name: ⚙️ Configurar gcloud y Docker
+        uses: google-github-actions/setup-gcloud@v2
+        with:
+          project_id: ${{ inputs.gcp_project_id }}
+      - run: gcloud auth configure-docker ${{ inputs.gcp_region }}-docker.pkg.dev --quiet
 
       - name: 📝 Generar metadata
         id: meta
         run: |
-          IMAGE_FULL="${{ inputs.dockerhub_username }}/${{ inputs.docker_image }}:${{ inputs.environment }}"
+          IMAGE_FULL="${{ inputs.gcp_region }}-docker.pkg.dev/${{ inputs.gcp_project_id }}/${{ inputs.artifact_registry }}/${{ inputs.docker_image }}:${{ inputs.environment }}"
           echo "image_full=$IMAGE_FULL" >> $GITHUB_OUTPUT
-          
           echo "### 🏗️ Build de Imagen - ${{ inputs.environment }}" >> $GITHUB_STEP_SUMMARY
           echo "- **Imagen**: \`$IMAGE_FULL\`" >> $GITHUB_STEP_SUMMARY
-          echo "- **Repositorio**: ${{ inputs.external_repo }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **Repositorio externo**: ${{ inputs.external_repo }}" >> $GITHUB_STEP_SUMMARY
           echo "- **Dockerfile**: ${{ inputs.dockerfile_path }}" >> $GITHUB_STEP_SUMMARY
 
       - name: 🔨 Construir imagen Docker
         run: |
           DOCKERFILE_FULL_PATH="${{ inputs.external_repo_path }}/${{ inputs.dockerfile_path }}"
-          
           docker build \
             -t ${{ steps.meta.outputs.image_full }} \
             -f "$DOCKERFILE_FULL_PATH" \
@@ -98,10 +117,8 @@ jobs:
             --label "build.environment=${{ inputs.environment }}" \
             --label "build.ref=${{ github.sha }}" \
             ${{ inputs.build_context }}
-          
-          echo "" >> $GITHUB_STEP_SUMMARY
           echo "✅ **Imagen construida exitosamente**" >> $GITHUB_STEP_SUMMARY
-          
+
       - name: 🧩 Hadolint - Validar Dockerfile
         id: hadolint
         continue-on-error: true
@@ -113,15 +130,14 @@ jobs:
 
       - name: 📊 Resultado Hadolint
         run: |
-          echo "" >> $GITHUB_STEP_SUMMARY
-          echo "### 📋 Test 1: Hadolint (Dockerfile Best Practices)" >> $GITHUB_STEP_SUMMARY
+          echo "### 📋 Test 1: Hadolint" >> $GITHUB_STEP_SUMMARY
           if [ "${{ steps.hadolint.outcome }}" == "success" ]; then
-            echo "✅ **PASSED** - Dockerfile cumple con best practices" >> $GITHUB_STEP_SUMMARY
+            echo "✅ Dockerfile OK" >> $GITHUB_STEP_SUMMARY
           else
-            echo "⚠️ **WARNINGS** - Revisa las recomendaciones de Hadolint" >> $GITHUB_STEP_SUMMARY
+            echo "⚠️ Revisa recomendaciones de Hadolint" >> $GITHUB_STEP_SUMMARY
           fi
 
-      - name: 🔎 Trivy - Quick Scan (Solo CRITICAL)
+      - name: 🔎 Trivy - Quick Scan (CRITICAL)
         id: trivy_quick
         continue-on-error: true
         uses: aquasecurity/trivy-action@master
@@ -135,42 +151,24 @@ jobs:
       - name: 📊 Resultado Trivy Quick
         id: quick_scan_result
         run: |
-          echo "" >> $GITHUB_STEP_SUMMARY
-          echo "### 🔍 Test 2: Trivy Quick Scan (Vulnerabilidades CRITICAL)" >> $GITHUB_STEP_SUMMARY
-          
+          echo "### 🔍 Test 2: Trivy Quick Scan" >> $GITHUB_STEP_SUMMARY
           if [ "${{ steps.trivy_quick.outcome }}" == "success" ]; then
-            echo "✅ **PASSED** - Sin vulnerabilidades CRITICAL detectadas" >> $GITHUB_STEP_SUMMARY
+            echo "✅ Sin vulnerabilidades CRITICAL" >> $GITHUB_STEP_SUMMARY
             echo "passed=true" >> $GITHUB_OUTPUT
           else
-            echo "❌ **FAILED** - Se detectaron vulnerabilidades CRITICAL" >> $GITHUB_STEP_SUMMARY
+            echo "❌ Se detectaron vulnerabilidades CRITICAL" >> $GITHUB_STEP_SUMMARY
             echo "passed=false" >> $GITHUB_OUTPUT
-            echo "" >> $GITHUB_STEP_SUMMARY
-            echo "🚨 **La imagen NO se subirá a DockerHub hasta corregir los problemas**" >> $GITHUB_STEP_SUMMARY
           fi
 
       - name: ⚖️ Evaluar resultados
         if: steps.quick_scan_result.outputs.passed != 'true'
-        run: |
-          echo "" >> $GITHUB_STEP_SUMMARY
-          echo "---" >> $GITHUB_STEP_SUMMARY
-          echo "## ❌ Pipeline Detenido" >> $GITHUB_STEP_SUMMARY
-          exit 1
+        run: exit 1
 
-      - name: 🔐 Login en DockerHub
-        if: steps.quick_scan_result.outputs.passed == 'true'
-        uses: docker/login-action@v3
-        with:
-          username: ${{ inputs.dockerhub_username }}
-          password: ${{ secrets.DOCKERHUB_TOKEN }}
-
-      - name: 📤 Push a DockerHub
+      - name: 📤 Push a Artifact Registry
         if: steps.quick_scan_result.outputs.passed == 'true'
         run: |
           docker push ${{ steps.meta.outputs.image_full }}
-          
-          echo "" >> $GITHUB_STEP_SUMMARY
-          echo "---" >> $GITHUB_STEP_SUMMARY
-          echo "## ✅ Imagen Publicada en DockerHub" >> $GITHUB_STEP_SUMMARY
+          echo "## ✅ Imagen publicada en Google Artifact Registry" >> $GITHUB_STEP_SUMMARY
 
   full-security-scan:
     name: 🔐 Full Security Scan (${{ inputs.environment }})
@@ -179,18 +177,22 @@ jobs:
     runs-on: ubuntu-latest
     
     steps:
-      - name: 🔐 Login en DockerHub
-        uses: docker/login-action@v3 
+      - name: 🔐 Autenticarse en GCP
+        uses: google-github-actions/auth@v2
         with:
-          username: ${{ inputs.dockerhub_username }}
-          password: ${{ secrets.DOCKERHUB_TOKEN }}
+          credentials_json: ${{ secrets.GCP_SA_KEY }}
 
-      - name: 📥 Pull imagen desde DockerHub
+      - name: ⚙️ Configurar gcloud y Docker
+        uses: google-github-actions/setup-gcloud@v2
+        with:
+          project_id: ${{ inputs.gcp_project_id }}
+      - run: gcloud auth configure-docker ${{ inputs.gcp_region }}-docker.pkg.dev --quiet
+
+      - name: 📥 Pull imagen desde Artifact Registry
         run: |
           IMAGE_FULL="${{ needs.build-and-quick-scan.outputs.image_full }}"
           docker pull $IMAGE_FULL
-          
-          echo "### 🔍 Análisis Completo de Seguridad - ${{ inputs.environment }}" >> $GITHUB_STEP_SUMMARY
+          echo "### 🔍 Análisis Completo de Seguridad" >> $GITHUB_STEP_SUMMARY
 
       - name: 🔎 Trivy - Full Scan (SARIF)
         uses: aquasecurity/trivy-action@master
@@ -206,20 +208,6 @@ jobs:
           sarif_file: 'trivy-results.sarif'
           category: 'trivy-hybrid-${{ inputs.environment }}'
 
-      - name: 📊 Trivy - Reporte Tabla
-        uses: aquasecurity/trivy-action@master
-        with:
-          image-ref: ${{ needs.build-and-quick-scan.outputs.image_full }}
-          format: 'table'
-          severity: 'CRITICAL,HIGH,MEDIUM'
-
-      - name: 📋 Trivy - Reporte JSON
-        uses: aquasecurity/trivy-action@master
-        with:
-          image-ref: ${{ needs.build-and-quick-scan.outputs.image_full }}
-          format: 'json'
-          output: 'trivy-report-${{ inputs.environment }}.json'
-
       - name: 🧬 Grype - Escaneo
         uses: anchore/scan-action@v4
         id: grype
@@ -234,6 +222,7 @@ jobs:
         with:
           sarif_file: ${{ steps.grype.outputs.sarif }}
           category: 'grype-hybrid-${{ inputs.environment }}'
+
 
       - name: 🐋 Dockle - Best Practices
         run: |
