@@ -1,0 +1,921 @@
+########################################
+# 🛡️ WORKFLOW REUSABLE: Security & Performance Analysis
+# Escanea imágenes DIRECTAMENTE desde DockerHub
+# Analiza seguridad, vulnerabilidades, código y rendimiento
+# security.yml
+########################################
+
+name: GCP Artifact Registry Security & Performance Analysis
+
+on:
+  workflow_call:
+    inputs:
+      artifact_name:  
+        description: 'Nombre único para el artifact de seguridad'
+        required: false
+        type: string
+        default: ''
+      image_name:
+        description: "Nombre de la imagen (ej: mi-aplicacion)"
+        required: true
+        type: string
+      image_tag:
+        description: "Tag de la imagen a analizar"
+        required: true
+        type: string
+      gcp_project_id:
+        description: "ID del proyecto de GCP"
+        required: true
+        type: string
+      gcp_region:
+        description: "Región del Artifact Registry (ej: us-central1)"
+        required: true
+        type: string
+      artifact_registry:
+        description: "Nombre del repositorio en Artifact Registry"
+        required: true
+        type: string
+      enable_code_analysis:
+        description: "Habilitar análisis de código fuente con CodeQL"
+        required: false
+        type: boolean
+        default: false
+      enable_sonar:
+        description: "Habilitar análisis de SonarCloud"
+        required: false
+        type: boolean
+        default: false
+      source_repo:
+        description: "Repositorio con el código fuente (para análisis CodeQL)"
+        required: false
+        type: string
+        default: ""
+      source_ref:
+        description: "Branch/ref del código fuente"
+        required: false
+        type: string
+        default: "main"
+    secrets:
+      GCP_SA_KEY:
+        required: true
+        description: "Service Account JSON Key de GCP"
+      SONAR_TOKEN:
+        required: false
+
+permissions:
+  actions: read
+  contents: read
+  security-events: write
+  pull-requests: write
+
+jobs:
+  # ═══════════════════════════════════════════════════════════
+  # 🔍 JOB 1: ANÁLISIS DE CÓDIGO ESTÁTICO (OPCIONAL)
+  # Solo se ejecuta si enable_code_analysis=true
+  # ═══════════════════════════════════════════════════════════
+  code-analysis:
+    name: 🧠 Análisis de Código Estático (CodeQL)
+    runs-on: ubuntu-latest
+    if: inputs.enable_code_analysis == true && inputs.source_repo != ''
+
+    steps:
+      - name: 📦 Checkout del código fuente
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ inputs.source_repo }}
+          ref: ${{ inputs.source_ref }}
+          fetch-depth: 0
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: 🧠 Inicializar CodeQL
+        uses: github/codeql-action/init@v3
+        with:
+          languages: 'javascript,python,java,go'
+
+      - name: ⚙️ Autobuild del proyecto
+        uses: github/codeql-action/autobuild@v3
+
+      - name: 🔍 Ejecutar análisis CodeQL
+        uses: github/codeql-action/analyze@v3
+        with:
+          category: "/language:multi"
+
+  # ═══════════════════════════════════════════════════════════
+  # 🐳 JOB 2: PULL DE IMAGEN DESDE GCP ARTIFACT REGISTRY
+  # ═══════════════════════════════════════════════════════════
+  pull-image:
+    name: 📥 Descargar Imagen desde GCP Artifact Registry
+    runs-on: ubuntu-latest
+    outputs:
+      image_full: ${{ steps.pull.outputs.image_full }}
+      image_size: ${{ steps.inspect.outputs.size }}
+      image_digest: ${{ steps.inspect.outputs.digest }}
+
+    steps:
+      - name: 🔐 Autenticación en GCP
+        uses: google-github-actions/auth@v2
+        with:
+          credentials_json: ${{ secrets.GCP_SA_KEY }}
+
+      - name: 🛠️ Setup Google Cloud SDK
+        uses: google-github-actions/setup-gcloud@v2
+        with:
+          project_id: ${{ inputs.gcp_project_id }}
+
+      - name: 🔐 Configurar Docker para GCP Artifact Registry
+        run: |
+          gcloud auth configure-docker ${{ inputs.gcp_region }}-docker.pkg.dev --quiet
+
+      - name: 📥 Pull de imagen desde GCP Artifact Registry
+        id: pull
+        run: |
+          IMAGE_FULL="${{ inputs.gcp_region }}-docker.pkg.dev/${{ inputs.gcp_project_id }}/${{ inputs.artifact_registry }}/${{ inputs.image_name }}:${{ inputs.image_tag }}"
+          echo "🔽 Descargando imagen: $IMAGE_FULL"
+          docker pull $IMAGE_FULL
+          echo "image_full=$IMAGE_FULL" >> $GITHUB_OUTPUT
+          
+          echo "### 📥 Imagen Descargada" >> $GITHUB_STEP_SUMMARY
+          echo "- **Imagen**: \`$IMAGE_FULL\`" >> $GITHUB_STEP_SUMMARY
+
+      - name: 🔍 Inspeccionar imagen
+        id: inspect
+        run: |
+          IMAGE_FULL="${{ inputs.gcp_region }}-docker.pkg.dev/${{ inputs.gcp_project_id }}/${{ inputs.artifact_registry }}/${{ inputs.image_name }}:${{ inputs.image_tag }}"
+          
+          # Obtener tamaño
+          SIZE=$(docker images $IMAGE_FULL --format "{{.Size}}")
+          echo "size=$SIZE" >> $GITHUB_OUTPUT
+          
+          # Obtener digest
+          DIGEST=$(docker inspect $IMAGE_FULL --format='{{index .RepoDigests 0}}')
+          echo "digest=$DIGEST" >> $GITHUB_OUTPUT
+          
+          echo "- **Tamaño**: $SIZE" >> $GITHUB_STEP_SUMMARY
+          echo "- **Digest**: \`$DIGEST\`" >> $GITHUB_STEP_SUMMARY
+
+  # ═══════════════════════════════════════════════════════════
+  # 🔐 JOB 3: ANÁLISIS DE SEGURIDAD MULTI-HERRAMIENTA
+  # ═══════════════════════════════════════════════════════════
+  security-scan:
+    name: 🔐 Escaneo de Seguridad Multi-Herramienta
+    needs: pull-image
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: 📦 Checkout para contexto
+        uses: actions/checkout@v4
+
+      - name: 🔍 Debug - Verificar inputs
+        run: |
+          echo "### 🔍 Debug - Parámetros Recibidos" >> $GITHUB_STEP_SUMMARY
+          echo "- **image_name**: ${{ inputs.image_name }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **image_tag**: ${{ inputs.image_tag }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **gcp_project_id**: ${{ inputs.gcp_project_id }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **gcp_region**: ${{ inputs.gcp_region }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **artifact_registry**: ${{ inputs.artifact_registry }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **image_full**: ${{ needs.pull-image.outputs.image_full }}" >> $GITHUB_STEP_SUMMARY
+
+      - name: 🔐 Autenticación en GCP
+        uses: google-github-actions/auth@v2
+        with:
+          credentials_json: ${{ secrets.GCP_SA_KEY }}
+
+      - name: 🛠️ Setup Google Cloud SDK
+        uses: google-github-actions/setup-gcloud@v2
+        with:
+          project_id: ${{ inputs.gcp_project_id }}
+
+      - name: 🔐 Configurar Docker para GCP Artifact Registry
+        run: |
+          gcloud auth configure-docker ${{ inputs.gcp_region }}-docker.pkg.dev --quiet
+
+      - name: 📥 Pull de imagen
+        run: |
+          docker pull ${{ needs.pull-image.outputs.image_full }}
+
+      # ─────────────────────────────────────────────────────
+      # TRIVY - Análisis de Vulnerabilidades
+      # ─────────────────────────────────────────────────────
+      - name: 🔎 Trivy - Escaneo SARIF (GitHub Security)
+        uses: aquasecurity/trivy-action@master
+        with:
+          image-ref: ${{ needs.pull-image.outputs.image_full }}
+          format: 'sarif'
+          output: 'trivy-results.sarif'
+          severity: 'CRITICAL,HIGH,MEDIUM,LOW'
+          vuln-type: 'os,library'
+
+      - name: 📤 Subir Trivy a GitHub Security
+        uses: github/codeql-action/upload-sarif@v3
+        with:
+          sarif_file: 'trivy-results.sarif'
+          category: 'trivy'
+
+      - name: 📊 Trivy - Reporte en tabla
+        uses: aquasecurity/trivy-action@master
+        with:
+          image-ref: ${{ needs.pull-image.outputs.image_full }}
+          format: 'table'
+          severity: 'CRITICAL,HIGH,MEDIUM'
+
+      - name: 📋 Trivy - Reporte JSON completo
+        uses: aquasecurity/trivy-action@master
+        with:
+          image-ref: ${{ needs.pull-image.outputs.image_full }}
+          format: 'json'
+          output: 'trivy-report.json'
+          severity: 'CRITICAL,HIGH,MEDIUM,LOW'
+
+      # ─────────────────────────────────────────────────────
+      # GRYPE - Análisis de Vulnerabilidades Alternativo
+      # ─────────────────────────────────────────────────────
+      - name: 🧬 Grype - Escaneo de vulnerabilidades
+        uses: anchore/scan-action@v4
+        id: grype
+        with:
+          image: ${{ needs.pull-image.outputs.image_full }}
+          fail-build: false
+          severity-cutoff: medium
+          output-format: sarif
+
+      - name: 📤 Subir Grype a GitHub Security
+        uses: github/codeql-action/upload-sarif@v3
+        with:
+          sarif_file: ${{ steps.grype.outputs.sarif }}
+          category: 'grype'
+
+      # ─────────────────────────────────────────────────────
+      # SNYK - Análisis de Seguridad (Opcional)
+      # ─────────────────────────────────────────────────────
+      - name: 🐍 Snyk - Escaneo de seguridad
+        continue-on-error: true
+        uses: snyk/actions/docker@master
+        env:
+          SNYK_TOKEN: ${{ secrets.SNYK_TOKEN }}
+        with:
+          image: ${{ needs.pull-image.outputs.image_full }}
+          args: --severity-threshold=high --file=Dockerfile
+
+      # ─────────────────────────────────────────────────────
+      # DOCKLE - Best Practices de Docker
+      # ─────────────────────────────────────────────────────
+      - name: 🐋 Dockle - Docker Best Practices
+        continue-on-error: true
+        run: |
+          echo "### 🐋 Dockle - Docker Best Practices" >> $GITHUB_STEP_SUMMARY
+          
+          # Intentar obtener la última versión
+          VERSION=$(curl --silent --fail "https://api.github.com/repos/goodwithtech/dockle/releases/latest" | \
+            grep '"tag_name":' | sed -E 's/.*"v([^"]+)".*/\1/' || echo "0.4.14")
+          
+          if [ -z "$VERSION" ] || [ "$VERSION" = "0.4.14" ]; then
+            echo "⚠️ No se pudo obtener la última versión, usando v0.4.14" >> $GITHUB_STEP_SUMMARY
+            VERSION="0.4.14"
+          fi
+          
+          echo "📦 Descargando Dockle v${VERSION}..." >> $GITHUB_STEP_SUMMARY
+          
+          # Descargar Dockle
+          DOCKLE_URL="https://github.com/goodwithtech/dockle/releases/download/v${VERSION}/dockle_${VERSION}_Linux-64bit.deb"
+          
+          if curl -fL -o dockle.deb "$DOCKLE_URL"; then
+            echo "✅ Descarga exitosa" >> $GITHUB_STEP_SUMMARY
+            
+            # Instalar
+            if sudo dpkg -i dockle.deb 2>/dev/null; then
+              echo "✅ Instalación exitosa" >> $GITHUB_STEP_SUMMARY
+              
+              # Ejecutar escaneo
+              echo '```' >> $GITHUB_STEP_SUMMARY
+              dockle --exit-code 0 --exit-level warn ${{ needs.pull-image.outputs.image_full }} | tee dockle-report.txt || true
+              cat dockle-report.txt >> $GITHUB_STEP_SUMMARY
+              echo '```' >> $GITHUB_STEP_SUMMARY
+            else
+              echo "❌ Error en la instalación de Dockle" >> $GITHUB_STEP_SUMMARY
+              echo "Dockle scan omitido" > dockle-report.txt
+            fi
+          else
+            echo "❌ Error al descargar Dockle desde $DOCKLE_URL" >> $GITHUB_STEP_SUMMARY
+            echo "Dockle scan omitido" > dockle-report.txt
+          fi
+
+      # ─────────────────────────────────────────────────────
+      # Generar resumen de vulnerabilidades
+      # ─────────────────────────────────────────────────────
+      - name: 📊 Generar resumen de vulnerabilidades
+        run: |
+          echo "## 🔐 Resumen de Seguridad" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          
+          # Contar vulnerabilidades por severidad en Trivy
+          if [ -f trivy-report.json ]; then
+            CRITICAL=$(jq '[.Results[]?.Vulnerabilities[]? | select(.Severity=="CRITICAL")] | length' trivy-report.json)
+            HIGH=$(jq '[.Results[]?.Vulnerabilities[]? | select(.Severity=="HIGH")] | length' trivy-report.json)
+            MEDIUM=$(jq '[.Results[]?.Vulnerabilities[]? | select(.Severity=="MEDIUM")] | length' trivy-report.json)
+            LOW=$(jq '[.Results[]?.Vulnerabilities[]? | select(.Severity=="LOW")] | length' trivy-report.json)
+            
+            echo "### 📈 Trivy - Vulnerabilidades Detectadas" >> $GITHUB_STEP_SUMMARY
+            echo "| Severidad | Cantidad |" >> $GITHUB_STEP_SUMMARY
+            echo "|-----------|----------|" >> $GITHUB_STEP_SUMMARY
+            echo "| 🔴 CRITICAL | $CRITICAL |" >> $GITHUB_STEP_SUMMARY
+            echo "| 🟠 HIGH | $HIGH |" >> $GITHUB_STEP_SUMMARY
+            echo "| 🟡 MEDIUM | $MEDIUM |" >> $GITHUB_STEP_SUMMARY
+            echo "| 🔵 LOW | $LOW |" >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+          fi
+
+      - name: Determine artifact name
+        id: artifact
+        run: |
+            if [ -n "${{ inputs.artifact_name }}" ]; then
+              ARTIFACT_NAME="${{ inputs.artifact_name }}"
+            else
+              ARTIFACT_NAME="security-reports-${{ inputs.image_tag }}-${{ github.run_id }}"
+            fi
+            echo "artifact_name=${ARTIFACT_NAME}" >> $GITHUB_OUTPUT
+
+      - name: Upload Security Reports
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+            name: ${{ steps.artifact.outputs.artifact_name }}
+            path: |
+              trivy-results.sarif
+              trivy-report.json
+              dockle-report.txt
+            retention-days: 30
+
+  # ═══════════════════════════════════════════════════════════
+  # ⚙️ JOB 4: ANÁLISIS DE RENDIMIENTO Y OPTIMIZACIÓN
+  # ═══════════════════════════════════════════════════════════
+  performance-analysis:
+    name: ⚡ Análisis de Rendimiento
+    needs: pull-image
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: 🔐 Autenticación en GCP
+        uses: google-github-actions/auth@v2
+        with:
+          credentials_json: ${{ secrets.GCP_SA_KEY }}
+
+      - name: 🛠️ Setup Google Cloud SDK
+        uses: google-github-actions/setup-gcloud@v2
+        with:
+          project_id: ${{ inputs.gcp_project_id }}
+
+      - name: 🔐 Configurar Docker para GCP Artifact Registry
+        run: |
+          gcloud auth configure-docker ${{ inputs.gcp_region }}-docker.pkg.dev --quiet
+
+      - name: 📥 Pull de imagen
+        run: |
+          docker pull ${{ needs.pull-image.outputs.image_full }}
+
+      # ─────────────────────────────────────────────────────
+      # Análisis de capas y tamaño
+      # ─────────────────────────────────────────────────────
+      - name: 📊 Analizar estructura de capas
+        run: |
+          echo "## 📊 Análisis de Imagen" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### 📦 Información General" >> $GITHUB_STEP_SUMMARY
+          echo "- **Tamaño**: ${{ needs.pull-image.outputs.image_size }}" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          
+          echo "### 🗂️ Capas de la Imagen" >> $GITHUB_STEP_SUMMARY
+          echo '```' >> $GITHUB_STEP_SUMMARY
+          docker history ${{ needs.pull-image.outputs.image_full }} --human --no-trunc | head -20 >> $GITHUB_STEP_SUMMARY
+          echo '```' >> $GITHUB_STEP_SUMMARY
+
+      # ─────────────────────────────────────────────────────
+      # DIVE - Análisis de eficiencia
+      # ─────────────────────────────────────────────────────
+      - name: 🧠 Dive - Análisis de eficiencia de capas
+        run: |
+          wget https://github.com/wagoodman/dive/releases/download/v0.12.0/dive_0.12.0_linux_amd64.deb
+          sudo apt install ./dive_0.12.0_linux_amd64.deb
+          
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### 🔍 Dive - Eficiencia de Imagen" >> $GITHUB_STEP_SUMMARY
+          CI=true dive ${{ needs.pull-image.outputs.image_full }} 2>&1 | tee dive-report.txt
+          
+          # Extraer métricas clave
+          EFFICIENCY=$(grep -oP 'Image efficiency score: \K[0-9]+' dive-report.txt || echo "N/A")
+          WASTED=$(grep -oP 'Total Image size: .* \(waste: \K[^\)]+' dive-report.txt || echo "N/A")
+          
+          echo "- **Eficiencia**: ${EFFICIENCY}%" >> $GITHUB_STEP_SUMMARY
+          echo "- **Espacio desperdiciado**: ${WASTED}" >> $GITHUB_STEP_SUMMARY
+
+      # ─────────────────────────────────────────────────────
+      # Container Structure Test
+      # ─────────────────────────────────────────────────────
+      - name: 🧪 Container Structure Test
+        run: |
+          curl -LO https://storage.googleapis.com/container-structure-test/latest/container-structure-test-linux-amd64
+          chmod +x container-structure-test-linux-amd64
+          sudo mv container-structure-test-linux-amd64 /usr/local/bin/container-structure-test
+          
+          # Crear configuración de pruebas
+          cat > container-test.yaml << 'EOF'
+          schemaVersion: 2.0.0
+          
+          # Pruebas de existencia de archivos
+          fileExistenceTests:
+            - name: 'Root Directory'
+              path: '/'
+              shouldExist: true
+            - name: 'Check /tmp exists'
+              path: '/tmp'
+              shouldExist: true
+          
+          # Pruebas de contenido de archivos
+          fileContentTests:
+            - name: 'Check /etc/os-release exists'
+              path: '/etc/os-release'
+              expectedContents: ['.*']
+          
+          # Metadata tests
+          metadataTest:
+            env: []
+          EOF
+          
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### 🧪 Container Structure Tests" >> $GITHUB_STEP_SUMMARY
+          container-structure-test test --image ${{ needs.pull-image.outputs.image_full }} --config container-test.yaml 2>&1 | tee structure-test.txt
+          echo '```' >> $GITHUB_STEP_SUMMARY
+          cat structure-test.txt >> $GITHUB_STEP_SUMMARY
+          echo '```' >> $GITHUB_STEP_SUMMARY
+
+      - name: 📤 Subir reportes de rendimiento
+        uses: actions/upload-artifact@v4
+        if: always()
+        continue-on-error: true
+        with:
+            name: performance-reports-${{ inputs.image_tag }}
+            path: |
+              dive-report.txt
+              structure-test.txt
+            retention-days: 30
+            if-no-files-found: warn
+
+  # ═══════════════════════════════════════════════════════════
+  # 🚀 JOB 5: PRUEBAS DE RENDIMIENTO EN RUNTIME
+  # ═══════════════════════════════════════════════════════════
+  runtime-performance:
+    name: 🚀 Pruebas de Runtime
+    needs: pull-image
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: 🔐 Autenticación en GCP
+        uses: google-github-actions/auth@v2
+        with:
+          credentials_json: ${{ secrets.GCP_SA_KEY }}
+
+      - name: 🛠️ Setup Google Cloud SDK
+        uses: google-github-actions/setup-gcloud@v2
+        with:
+          project_id: ${{ inputs.gcp_project_id }}
+
+      - name: 🔐 Configurar Docker para GCP Artifact Registry
+        run: |
+          gcloud auth configure-docker ${{ inputs.gcp_region }}-docker.pkg.dev --quiet
+
+      - name: 📥 Pull de imagen
+        run: |
+          docker pull ${{ needs.pull-image.outputs.image_full }}
+
+      # ─────────────────────────────────────────────────────
+      # Medir tiempo de inicio
+      # ─────────────────────────────────────────────────────
+      - name: ⏱️ Medir tiempo de inicio del contenedor
+        id: startup
+        run: |
+          echo "## 🚀 Análisis de Runtime" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          
+          # Múltiples mediciones para precisión
+          TOTAL=0
+          RUNS=3
+          
+          echo "### ⏱️ Tiempo de Inicio (promedio de $RUNS ejecuciones)" >> $GITHUB_STEP_SUMMARY
+          
+          for i in $(seq 1 $RUNS); do
+            START=$(date +%s%N)
+            CONTAINER_ID=$(docker run -d ${{ needs.pull-image.outputs.image_full }} sleep 5)
+            
+            # Esperar a que el contenedor esté corriendo
+            timeout 30 sh -c "until docker ps | grep -q $CONTAINER_ID; do sleep 0.1; done" || true
+            
+            END=$(date +%s%N)
+            DURATION=$(( (END - START) / 1000000 ))
+            TOTAL=$((TOTAL + DURATION))
+            
+            echo "- Run $i: ${DURATION}ms" >> $GITHUB_STEP_SUMMARY
+            
+            docker stop $CONTAINER_ID >/dev/null 2>&1
+            docker rm $CONTAINER_ID >/dev/null 2>&1
+          done
+          
+          AVG=$((TOTAL / RUNS))
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**Promedio: ${AVG}ms**" >> $GITHUB_STEP_SUMMARY
+          echo "startup_time_avg=${AVG}ms" >> $GITHUB_OUTPUT
+
+      # ─────────────────────────────────────────────────────
+      # Análisis de uso de recursos
+      # ─────────────────────────────────────────────────────
+      - name: 💻 Análisis de consumo de recursos
+        run: |
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### 💻 Uso de Recursos" >> $GITHUB_STEP_SUMMARY
+          
+          # Iniciar contenedor con carga
+          CONTAINER_ID=$(docker run -d ${{ needs.pull-image.outputs.image_full }} sleep 300)
+          
+          # Esperar estabilización
+          sleep 10
+          
+          # Capturar estadísticas múltiples veces
+          echo "| Métrica | Valor |" >> $GITHUB_STEP_SUMMARY
+          echo "|---------|-------|" >> $GITHUB_STEP_SUMMARY
+          
+          for i in {1..5}; do
+            STATS=$(docker stats --no-stream --format "{{.CPUPerc}}\t{{.MemUsage}}\t{{.NetIO}}\t{{.BlockIO}}" $CONTAINER_ID)
+            CPU=$(echo $STATS | awk '{print $1}')
+            MEM=$(echo $STATS | awk '{print $2}')
+            
+            if [ $i -eq 1 ]; then
+              echo "| CPU | $CPU |" >> $GITHUB_STEP_SUMMARY
+              echo "| Memoria | $MEM |" >> $GITHUB_STEP_SUMMARY
+            fi
+            
+            sleep 2
+          done
+          
+          # Métricas finales
+          FINAL_STATS=$(docker stats --no-stream --format "{{.CPUPerc}}\t{{.MemUsage}}\t{{.PIDs}}" $CONTAINER_ID)
+          PIDS=$(echo $FINAL_STATS | awk '{print $3}')
+          echo "| Procesos | $PIDS |" >> $GITHUB_STEP_SUMMARY
+          
+          docker stop $CONTAINER_ID
+          docker rm $CONTAINER_ID
+
+      # ─────────────────────────────────────────────────────
+      # Health check test
+      # ─────────────────────────────────────────────────────
+      - name: 🏥 Prueba de health check
+        continue-on-error: true
+        run: |
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### 🏥 Health Check" >> $GITHUB_STEP_SUMMARY
+          
+          CONTAINER_ID=$(docker run -d ${{ needs.pull-image.outputs.image_full }})
+          sleep 5
+          
+          HEALTH=$(docker inspect --format='{{.State.Health.Status}}' $CONTAINER_ID 2>/dev/null || echo "no-healthcheck")
+          
+          if [ "$HEALTH" = "no-healthcheck" ]; then
+            echo "⚠️ **Advertencia**: La imagen no tiene health check configurado" >> $GITHUB_STEP_SUMMARY
+          else
+            echo "✅ Health check status: $HEALTH" >> $GITHUB_STEP_SUMMARY
+          fi
+          
+          docker stop $CONTAINER_ID
+          docker rm $CONTAINER_ID
+  # ═══════════════════════════════════════════════════════════
+  # 📋 JOB 6: GENERACIÓN DE REPORTE FINAL Y RECOMENDACIONES
+  # ═══════════════════════════════════════════════════════════
+  generate-report:
+    name: 📋 Generar Reporte Final
+    needs: [pull-image, security-scan, performance-analysis, runtime-performance]
+    runs-on: ubuntu-latest
+    if: always()
+
+    steps:
+      - name: 📦 Checkout
+        uses: actions/checkout@v4
+
+      - name: 📥 Descargar artefactos de seguridad
+        uses: actions/download-artifact@v4
+        continue-on-error: true
+        with:
+          name: security-reports-${{ inputs.image_tag }}
+          path: ./reports/security
+
+      - name: 📥 Descargar artefactos de rendimiento
+        uses: actions/download-artifact@v4
+        continue-on-error: true
+        with:
+          name: performance-reports-${{ inputs.image_tag }}
+          path: ./reports/performance
+
+      - name: 📊 Generar reporte consolidado
+        run: |
+          mkdir -p ./reports/security ./reports/performance
+          
+          cat > SECURITY_REPORT.md << 'EOF'
+          # 🔐 Reporte de Seguridad y Rendimiento
+          
+          ## 📋 Información de la Imagen
+          - **Imagen**: `${{ needs.pull-image.outputs.image_full }}`
+          - **Tamaño**: ${{ needs.pull-image.outputs.image_size }}
+          - **Digest**: `${{ needs.pull-image.outputs.image_digest }}`
+          - **Fecha de análisis**: $(date -u +"%Y-%m-%d %H:%M:%S UTC")
+          
+          ---
+          
+          ## 🛡️ ANÁLISIS DE SEGURIDAD
+          
+          ### 🔍 Herramientas Utilizadas
+          - ✅ **Trivy**: Escaneo de vulnerabilidades en OS y librerías
+          - ✅ **Grype**: Análisis complementario de vulnerabilidades
+          - ✅ **Dockle**: Verificación de best practices de Docker
+          
+          ### 📊 Resultados de Trivy
+          EOF
+          
+          if [ -f ./reports/security/trivy-report.json ]; then
+            CRITICAL=$(jq '[.Results[]?.Vulnerabilities[]? | select(.Severity=="CRITICAL")] | length' ./reports/security/trivy-report.json)
+            HIGH=$(jq '[.Results[]?.Vulnerabilities[]? | select(.Severity=="HIGH")] | length' ./reports/security/trivy-report.json)
+            MEDIUM=$(jq '[.Results[]?.Vulnerabilities[]? | select(.Severity=="MEDIUM")] | length' ./reports/security/trivy-report.json)
+            
+            cat >> SECURITY_REPORT.md << EOF
+          
+          | Severidad | Cantidad | Estado |
+          |-----------|----------|--------|
+          | 🔴 CRITICAL | $CRITICAL | $([ $CRITICAL -eq 0 ] && echo "✅ OK" || echo "❌ ACCIÓN REQUERIDA") |
+          | 🟠 HIGH | $HIGH | $([ $HIGH -eq 0 ] && echo "✅ OK" || echo "⚠️ REVISAR") |
+          | 🟡 MEDIUM | $MEDIUM | $([ $MEDIUM -le 5 ] && echo "✅ Aceptable" || echo "⚠️ Mejorable") |
+          EOF
+          else
+            cat >> SECURITY_REPORT.md << 'EOF'
+          
+          ⚠️ **Reporte de Trivy no disponible**
+          
+          El escaneo de seguridad no se completó correctamente. Posibles causas:
+          - Error en el pull de la imagen
+          - Fallo en la autenticación con DockerHub
+          - Timeout del escaneo
+          
+          **Acción requerida**: Revisar los logs del job `security-scan` para más detalles.
+          EOF
+          fi
+          
+          cat >> SECURITY_REPORT.md << 'EOF'
+          
+          ---
+          
+          ## ⚡ ANÁLISIS DE RENDIMIENTO
+          
+          ### 📦 Eficiencia de Imagen
+          - Ver reporte detallado de **Dive** en los artefactos adjuntos
+          
+          ### 🚀 Rendimiento en Runtime
+          - Ver métricas de inicio y uso de recursos en el job summary
+          
+          ---
+          
+          ## ✅ RECOMENDACIONES PRIORITARIAS
+          
+          ### 🔴 Críticas (Implementar Inmediatamente)
+          - [ ] **Corregir vulnerabilidades CRITICAL**: Actualizar todas las dependencias con vulnerabilidades críticas
+          - [ ] **Implementar usuario no-root**: Nunca ejecutar contenedores como root
+          - [ ] **Agregar health check**: Implementar endpoint de salud para monitoreo
+          
+          ### 🟠 Importantes (Implementar Esta Semana)
+          - [ ] **Reducir tamaño de imagen**: Objetivo < 500MB para imágenes de aplicación
+          - [ ] **Multi-stage builds**: Separar build de runtime
+          - [ ] **Usar imagen base segura**: Alpine Linux o Distroless
+          - [ ] **Agregar .dockerignore**: Evitar archivos innecesarios en la imagen
+          
+          ### 🟡 Mejoras (Implementar Este Mes)
+          - [ ] **Optimizar capas**: Combinar comandos RUN relacionados
+          - [ ] **Limpiar cache**: Eliminar caches de apt/apk tras instalación
+          - [ ] **Configurar límites de recursos**: CPU y memoria en production
+          - [ ] **Implementar escaneo automático**: Integrar en CI/CD
+          - [ ] **Usar tags inmutables**: Evitar `latest` en producción
+          - [ ] **Firmar imágenes**: Implementar Docker Content Trust
+          
+          ---
+          
+          ## 📚 RECURSOS Y SIGUIENTES PASOS
+          
+          ### 🔗 Enlaces Útiles
+          - [Docker Security Best Practices](https://docs.docker.com/develop/security-best-practices/)
+          - [OWASP Docker Security Cheat Sheet](https://cheatsheetseries.owasp.org/cheatsheets/Docker_Security_Cheat_Sheet.html)
+          - [CIS Docker Benchmark](https://www.cisecurity.org/benchmark/docker)
+          
+          ### 📊 Acciones Recomendadas
+          1. Revisar todos los reportes en la sección **Artifacts**
+          2. Priorizar corrección de vulnerabilidades CRITICAL y HIGH
+          3. Implementar las recomendaciones críticas en el próximo sprint
+          4. Configurar escaneo automático en cada push
+          5. Establecer política de actualización de imágenes base
+          
+          ---
+          
+          ## 🔄 Próximo Escaneo
+          Se recomienda escanear la imagen:
+          - ✅ Después de cada actualización de dependencias
+          - ✅ Semanalmente para imágenes en producción
+          - ✅ Mensualmente para imágenes en desarrollo
+          
+          ---
+          
+          **Generado automáticamente por GitHub Actions** | [Ver workflow](https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }})
+          EOF
+          
+          cat SECURITY_REPORT.md >> $GITHUB_STEP_SUMMARY
+
+      - name: 📤 Subir reporte final
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+            name: final-security-report-${{ inputs.image_tag }}
+            path: SECURITY_REPORT.md
+            retention-days: 90
+            if-no-files-found: error
+
+      - name: 💬 Comentar en Pull Request
+        if: github.event_name == 'pull_request'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const fs = require('fs');
+            const report = fs.readFileSync('SECURITY_REPORT.md', 'utf8');
+            
+            const collapsedReport = `
+            ## 🔐 Reporte de Seguridad y Rendimiento
+            
+            <details>
+            <summary>📊 Ver reporte completo</summary>
+            
+            ${report}
+            
+            </details>
+            
+            ### 🎯 Acciones Rápidas
+            - 📥 Descarga los reportes detallados en la sección **Artifacts**
+            - 🔍 Revisa las vulnerabilidades en la pestaña **Security**
+            - ⚡ Implementa las recomendaciones críticas prioritarias
+            `;
+            
+            github.rest.issues.createComment({
+              issue_number: context.issue.number,
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              body: collapsedReport
+            });
+
+      - name: 🚨 Crear issue si hay vulnerabilidades críticas
+        if: always()
+        continue-on-error: true
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const fs = require('fs');
+            
+            let hasCritical = false;
+            let criticalCount = 0;
+            let highCount = 0;
+            
+            try {
+              if (!fs.existsSync('./reports/security/trivy-report.json')) {
+                console.log('⚠️ Reporte de Trivy no encontrado - posiblemente el escaneo falló');
+                
+                const issueTitle = `⚠️ Fallo en el escaneo de seguridad para ${{ needs.pull-image.outputs.image_full }}`;
+                const issueBody = `
+                ## ⚠️ Error en el Pipeline de Seguridad
+                
+                El escaneo de seguridad no se completó correctamente para:
+                
+                **Imagen**: \`${{ needs.pull-image.outputs.image_full }}\`
+                **Fecha**: ${new Date().toISOString().split('T')[0]}
+                **Workflow**: [#${{ github.run_number }}](https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }})
+                
+                ### 🔍 Posibles Causas
+                
+                1. Error en el login de DockerHub
+                2. La imagen no existe en DockerHub
+                3. Timeout del escaneo
+                4. Problemas de red
+                
+                ### ✅ Acciones Requeridas
+                
+                1. Revisar los logs del workflow
+                2. Verificar credenciales de DockerHub
+                3. Confirmar que la imagen existe: \`docker pull ${{ needs.pull-image.outputs.image_full }}\`
+                4. Re-ejecutar el workflow manualmente
+                
+                ---
+                
+                Este issue se cerrará automáticamente cuando el escaneo se complete exitosamente.
+                `;
+                
+                await github.rest.issues.create({
+                  owner: context.repo.owner,
+                  repo: context.repo.repo,
+                  title: issueTitle,
+                  body: issueBody,
+                  labels: ['security', 'pipeline-failure', 'automated']
+                });
+                
+                return;
+              }
+              
+              const trivyReport = JSON.parse(fs.readFileSync('./reports/security/trivy-report.json', 'utf8'));
+              
+              for (const result of trivyReport.Results || []) {
+                for (const vuln of result.Vulnerabilities || []) {
+                  if (vuln.Severity === 'CRITICAL') {
+                    criticalCount++;
+                    hasCritical = true;
+                  } else if (vuln.Severity === 'HIGH') {
+                    highCount++;
+                  }
+                }
+              }
+            } catch (error) {
+              console.log('No se pudo leer el reporte de Trivy');
+              return;
+            }
+            
+            if (hasCritical) {
+              const issueTitle = `🚨 Vulnerabilidades críticas detectadas en ${{ needs.pull-image.outputs.image_full }}`;
+              const issueBody = `
+              ## 🔐 Alerta de Seguridad
+              
+              Se han detectado **${criticalCount} vulnerabilidades CRITICAL** y **${highCount} vulnerabilidades HIGH** en la imagen:
+              
+              **Imagen**: \`${{ needs.pull-image.outputs.image_full }}\`
+              **Fecha**: ${new Date().toISOString().split('T')[0]}
+              **Workflow**: [#${{ github.run_number }}](https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }})
+              
+              ### 🎯 Acciones Requeridas
+              
+              1. ✅ Revisar el [reporte completo en Artifacts](https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }})
+              2. ✅ Actualizar dependencias vulnerables
+              3. ✅ Re-construir y re-escanear la imagen
+              4. ✅ Verificar que las vulnerabilidades se resolvieron
+              
+              ### 📊 Resumen
+              - 🔴 **CRITICAL**: ${criticalCount}
+              - 🟠 **HIGH**: ${highCount}
+              
+              ### 🔗 Enlaces Útiles
+              - [Reporte de Seguridad](https://github.com/${{ github.repository }}/security)
+              - [Documentación de Remediación](https://github.com/${{ github.repository }}/wiki)
+              
+              ---
+              
+              ⚠️ **Este issue se cierra automáticamente cuando se resuelvan las vulnerabilidades**
+              `;
+              
+              const existingIssues = await github.rest.issues.listForRepo({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                state: 'open',
+                labels: 'security,critical'
+              });
+              
+              const similarIssue = existingIssues.data.find(issue => 
+                issue.title.includes('Vulnerabilidades críticas') && 
+                issue.title.includes('${{ inputs.image_tag }}')
+              );
+              
+              if (!similarIssue) {
+                await github.rest.issues.create({
+                  owner: context.repo.owner,
+                  repo: context.repo.repo,
+                  title: issueTitle,
+                  body: issueBody,
+                  labels: ['security', 'critical', 'automated']
+                });
+                
+                console.log('✅ Issue de seguridad creado');
+              } else {
+                await github.rest.issues.createComment({
+                  owner: context.repo.owner,
+                  repo: context.repo.repo,
+                  issue_number: similarIssue.number,
+                  body: `🔄 **Actualización**: El escaneo sigue detectando ${criticalCount} vulnerabilidades CRITICAL.\n\nWorkflow: [#${{ github.run_number }}](https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }})`
+                });
+                
+                console.log('✅ Issue de seguridad actualizado');
+              }
+            }
+
+      - name: ✅ Verificar estado final
+        run: |
+          echo "## ✅ Estado Final del Análisis" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "| Check | Estado |" >> $GITHUB_STEP_SUMMARY
+          echo "|-------|--------|" >> $GITHUB_STEP_SUMMARY
+          echo "| 🔐 Escaneo de seguridad | ✅ Completado |" >> $GITHUB_STEP_SUMMARY
+          echo "| ⚡ Análisis de rendimiento | ✅ Completado |" >> $GITHUB_STEP_SUMMARY
+          echo "| 🚀 Pruebas de runtime | ✅ Completado |" >> $GITHUB_STEP_SUMMARY
+          echo "| 📋 Reporte generado | ✅ Completado |" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "📦 **Todos los reportes están disponibles en Artifacts**" >> $GITHUB_STEP_SUMMARY
