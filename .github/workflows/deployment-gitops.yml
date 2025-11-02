@@ -2,7 +2,7 @@
 # 🚀 WORKFLOW REUSABLE: GitOps Deployment
 # Orchestrador principal para despliegues GitOps
 # Actualiza manifiestos de Kubernetes y Helm
-# deployment-gitops.yml v2.1 - FIXED
+# deployment-gitops.yml v2.2 - FULLY FIXED
 ########################################
 
 name: Reusable GitOps Deployment
@@ -30,21 +30,11 @@ on:
         description: 'Tag de la imagen Docker a usar'
         required: true
         type: string
-      create_pr:
-        description: 'Crear Pull Request en lugar de commit directo'
-        required: false
-        type: boolean
-        default: false
       target_branch:
-        description: 'Rama objetivo para el commit/PR'
+        description: 'Rama objetivo para el commit'
         required: false
         type: string
         default: 'main'
-      dry_run:
-        description: 'Modo dry-run (solo preview sin aplicar cambios)'
-        required: false
-        type: boolean
-        default: false
     secrets:
       GH_TOKEN:
         description: 'Token de GitHub con permisos de escritura'
@@ -54,9 +44,6 @@ on:
       commit_sha:
         description: 'SHA del commit generado'
         value: ${{ jobs.gitops-deployment.outputs.commit_sha }}
-      pr_number:
-        description: 'Número del PR creado (si create_pr=true)'
-        value: ${{ jobs.gitops-deployment.outputs.pr_number }}
       files_updated:
         description: 'Lista de archivos actualizados'
         value: ${{ jobs.gitops-deployment.outputs.files_updated }}
@@ -81,7 +68,6 @@ jobs:
     
     outputs:
       commit_sha: ${{ steps.deploy.outputs.commit_sha }}
-      pr_number: ${{ steps.deploy.outputs.pr_number }}
       files_updated: ${{ steps.deploy.outputs.files_updated }}
       k8s_files_count: ${{ steps.deploy.outputs.k8s_files_count }}
       helm_files_count: ${{ steps.deploy.outputs.helm_files_count }}
@@ -100,8 +86,6 @@ jobs:
           echo "🌍 Environment: ${{ inputs.environment }}"
           echo "🐳 Image: ${{ inputs.dockerhub_username }}/${{ inputs.docker_image }}:${{ inputs.image_tag }}"
           echo "🌿 Target Branch: ${{ inputs.target_branch }}"
-          echo "🔀 Create PR: ${{ inputs.create_pr }}"
-          echo "🔍 Dry-run: ${{ inputs.dry_run }}"
           echo ""
           echo "📂 Target Repository: dariasmoises979-blip/pipeline-build"
           echo "📂 Expected paths:"
@@ -198,7 +182,6 @@ jobs:
           
           K8S_PATH="${{ steps.verify.outputs.k8s_path }}"
           NEW_IMAGE="${{ inputs.dockerhub_username }}/${{ inputs.docker_image }}:${{ inputs.image_tag }}"
-          DRY_RUN="${{ inputs.dry_run }}"
           
           K8S_COUNT=0
           
@@ -211,20 +194,16 @@ jobs:
               echo "   📌 Old: ${OLD_IMAGE}"
               echo "   ✨ New: ${NEW_IMAGE}"
               
-              if [[ "${DRY_RUN}" != "true" ]]; then
-                cp "${file}" "${file}.bak"
-                yq eval -i "(..|select(has(\"image\"))|select(.image == \"${OLD_IMAGE}\")).image = \"${NEW_IMAGE}\"" "${file}"
-                
-                if yq eval "${file}" > /dev/null 2>&1; then
-                  echo "   ✅ Updated successfully"
-                  rm "${file}.bak"
-                  K8S_COUNT=$((K8S_COUNT + 1))
-                else
-                  echo "   ❌ YAML validation failed, rolling back"
-                  mv "${file}.bak" "${file}"
-                fi
+              cp "${file}" "${file}.bak"
+              yq eval -i "(..|select(has(\"image\"))|select(.image == \"${OLD_IMAGE}\")).image = \"${NEW_IMAGE}\"" "${file}"
+              
+              if yq eval "${file}" > /dev/null 2>&1; then
+                echo "   ✅ Updated successfully"
+                rm "${file}.bak"
+                K8S_COUNT=$((K8S_COUNT + 1))
               else
-                echo "   🔍 [DRY-RUN] Would update this file"
+                echo "   ❌ YAML validation failed, rolling back"
+                mv "${file}.bak" "${file}"
               fi
             else
               echo "   ⏭️  No changes needed"
@@ -250,7 +229,6 @@ jobs:
           HELM_PATH="${{ steps.verify.outputs.helm_path }}"
           NEW_REPO="${{ inputs.dockerhub_username }}/${{ inputs.docker_image }}"
           NEW_TAG="${{ inputs.image_tag }}"
-          DRY_RUN="${{ inputs.dry_run }}"
           
           HELM_COUNT=0
           
@@ -267,21 +245,17 @@ jobs:
                 echo "   📌 Old: ${OLD_REPO}:${OLD_TAG}"
                 echo "   ✨ New: ${NEW_REPO}:${NEW_TAG}"
                 
-                if [[ "${DRY_RUN}" != "true" ]]; then
-                  cp "${file}" "${file}.bak"
-                  yq eval -i ".image.repository = \"${NEW_REPO}\"" "${file}"
-                  yq eval -i ".image.tag = \"${NEW_TAG}\"" "${file}"
-                  
-                  if yq eval "${file}" > /dev/null 2>&1; then
-                    echo "   ✅ Updated successfully"
-                    rm "${file}.bak"
-                    HELM_COUNT=$((HELM_COUNT + 1))
-                  else
-                    echo "   ❌ YAML validation failed, rolling back"
-                    mv "${file}.bak" "${file}"
-                  fi
+                cp "${file}" "${file}.bak"
+                yq eval -i ".image.repository = \"${NEW_REPO}\"" "${file}"
+                yq eval -i ".image.tag = \"${NEW_TAG}\"" "${file}"
+                
+                if yq eval "${file}" > /dev/null 2>&1; then
+                  echo "   ✅ Updated successfully"
+                  rm "${file}.bak"
+                  HELM_COUNT=$((HELM_COUNT + 1))
                 else
-                  echo "   🔍 [DRY-RUN] Would update this file"
+                  echo "   ❌ YAML validation failed, rolling back"
+                  mv "${file}.bak" "${file}"
                 fi
               else
                 echo "   ⏭️  No changes needed"
@@ -321,17 +295,16 @@ jobs:
           echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
 
       # ═══════════════════════════════════════════════════════════
-      # 💾 PASO 8: COMMIT O PR
+      # 💾 PASO 8: COMMIT CAMBIOS
       # ═══════════════════════════════════════════════════════════
       - name: 🔧 Configure Git
-        if: steps.consolidate.outputs.changed == 'true' && inputs.dry_run == false
         run: |
           git config --global user.name "github-actions[bot]"
           git config --global user.email "github-actions[bot]@users.noreply.github.com"
 
       - name: 💾 Commit changes directly
         id: commit
-        if: steps.consolidate.outputs.changed == 'true' && inputs.create_pr == false && inputs.dry_run == false
+        if: steps.consolidate.outputs.changed == 'true'
         run: |
           echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
           echo "💾 COMMITTING CHANGES"
@@ -362,41 +335,6 @@ jobs:
           echo "   Branch: ${{ inputs.target_branch }}"
           echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
 
-      - name: 🔀 Create Pull Request
-        id: create_pr
-        if: steps.consolidate.outputs.changed == 'true' && inputs.create_pr == true && inputs.dry_run == false
-        uses: peter-evans/create-pull-request@v6
-        with:
-          token: ${{ secrets.GH_TOKEN }}
-          branch: manifests-update-${{ inputs.environment }}-${{ github.run_id }}
-          delete-branch: true
-          base: ${{ inputs.target_branch }}
-          title: "🔄 Update Manifests - ${{ inputs.environment }} - ${{ inputs.image_tag }}"
-          body: |
-            ## 🔄 Kubernetes & Helm Manifests Update
-            
-            ### 📦 Deployment Details
-            - **Environment**: `${{ inputs.environment }}`
-            - **Project**: `${{ inputs.project_name }}`
-            - **Image**: `${{ inputs.dockerhub_username }}/${{ inputs.docker_image }}:${{ inputs.image_tag }}`
-            
-            ### 📊 Files Updated
-            - **Kubernetes**: ${{ steps.consolidate.outputs.k8s_files_count }} files
-            - **Helm**: ${{ steps.consolidate.outputs.helm_files_count }} files
-            - **Total**: ${{ steps.consolidate.outputs.total_files }} files
-            
-            ### 🔗 Links
-            - [Workflow Run](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }})
-            - [DockerHub](https://hub.docker.com/r/${{ inputs.dockerhub_username }}/${{ inputs.docker_image }})
-            
-            ---
-            🤖 Automated by GitHub Actions
-            👤 Triggered by: @${{ github.actor }}
-          labels: |
-            automated
-            gitops
-            ${{ inputs.environment }}
-
       # ═══════════════════════════════════════════════════════════
       # ✅ PASO 9: ESTADO FINAL
       # ═══════════════════════════════════════════════════════════
@@ -408,9 +346,6 @@ jobs:
           if [ "${TOTAL}" -eq 0 ]; then
             echo "status=skipped" >> $GITHUB_OUTPUT
             echo "ℹ️  No changes were needed"
-          elif [ "${{ inputs.dry_run }}" = "true" ]; then
-            echo "status=dry-run" >> $GITHUB_OUTPUT
-            echo "🔍 Dry-run completed - no actual changes made"
           else
             echo "status=success" >> $GITHUB_OUTPUT
             echo "✅ Deployment completed successfully"
@@ -423,7 +358,6 @@ jobs:
         id: deploy
         run: |
           echo "commit_sha=${{ steps.commit.outputs.commit_sha }}" >> $GITHUB_OUTPUT
-          echo "pr_number=${{ steps.create_pr.outputs.pull-request-number }}" >> $GITHUB_OUTPUT
           echo "k8s_files_count=${{ steps.consolidate.outputs.k8s_files_count }}" >> $GITHUB_OUTPUT
           echo "helm_files_count=${{ steps.consolidate.outputs.helm_files_count }}" >> $GITHUB_OUTPUT
           echo "files_updated=kubernetes+helm" >> $GITHUB_OUTPUT
@@ -447,10 +381,6 @@ jobs:
           
           if [ "${{ steps.commit.outputs.commit_sha }}" != "" ]; then
             echo "✅ Commit: ${{ steps.commit.outputs.commit_sha }}"
-          fi
-          
-          if [ "${{ steps.create_pr.outputs.pull-request-number }}" != "" ]; then
-            echo "🔀 PR: #${{ steps.create_pr.outputs.pull-request-number }}"
           fi
           
           echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
