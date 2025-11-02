@@ -24,7 +24,7 @@ global:
     tag: 1.67.0 # 🧩 Versión de n8n
 image:
   repository: us-central1-docker.pkg.dev/elite-ceremony-476307-s9/artifact_dariasmoises979/mi-aplicacion
-  tag: pre-5097148
+  tag: pre-2cd4ed2
   pullPolicy: IfNotPresent
 server:
   # ======================================================
