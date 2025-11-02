@@ -1,8 +1,8 @@
 ########################################
-# 🚀 WORKFLOW REUSABLE: GitOps Deployment (GCP Artifact Registry)
+# 🚀 WORKFLOW REUSABLE: GitOps Deployment (GCP Artifact Registry) - FIXED
 # Orchestrador principal para despliegues GitOps
 # Actualiza manifiestos de Kubernetes y Helm
-# deployment-gitops.yml v3.0 - GCP ARTIFACT REGISTRY
+# deployment-gitops.yml v3.1 - GCP ARTIFACT REGISTRY - FIXED
 ########################################
 
 name: Reusable GitOps Deployment (GCP)
@@ -75,10 +75,10 @@ jobs:
     runs-on: ubuntu-latest
     
     outputs:
-      commit_sha: ${{ steps.deploy.outputs.commit_sha }}
+      commit_sha: ${{ steps.commit.outputs.commit_sha }}
       files_updated: ${{ steps.deploy.outputs.files_updated }}
-      k8s_files_count: ${{ steps.deploy.outputs.k8s_files_count }}
-      helm_files_count: ${{ steps.deploy.outputs.helm_files_count }}
+      k8s_files_count: ${{ steps.consolidate.outputs.k8s_files_count }}
+      helm_files_count: ${{ steps.consolidate.outputs.helm_files_count }}
       deployment_status: ${{ steps.status.outputs.status }}
     
     steps:
@@ -127,6 +127,14 @@ jobs:
           sudo chmod +x /usr/bin/yq
 
       # ═══════════════════════════════════════════════════════════
+      # 🔧 PASO 3.5: CONFIGURAR GIT (ANTES DE CUALQUIER CAMBIO)
+      # ═══════════════════════════════════════════════════════════
+      - name: 🔧 Configure Git
+        run: |
+          git config --global user.name "github-actions[bot]"
+          git config --global user.email "github-actions[bot]@users.noreply.github.com"
+
+      # ═══════════════════════════════════════════════════════════
       # 🔍 PASO 4: VERIFICAR ESTRUCTURA
       # ═══════════════════════════════════════════════════════════
       - name: 🔍 Verify directory structure
@@ -137,7 +145,6 @@ jobs:
           echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
           echo "📍 Current directory: $(pwd)"
           echo ""
-          ls -la
           
           K8S_PATH="kubernetes/${{ inputs.environment }}/${{ inputs.project_name }}"
           HELM_PATH="helm/override/${{ inputs.environment }}"
@@ -148,7 +155,7 @@ jobs:
           if [ -d "${K8S_PATH}" ]; then
             echo "✅ Kubernetes path found: ${K8S_PATH}"
             echo "   Files:"
-            ls -la "${K8S_PATH}" | grep -E '\.(yaml|yml)$' || echo "   (no YAML files)"
+            find "${K8S_PATH}" -type f \( -name "*.yaml" -o -name "*.yml" \) -exec basename {} \; || echo "   (no YAML files)"
             K8S_EXISTS=true
           else
             echo "⚠️  Kubernetes path not found: ${K8S_PATH}"
@@ -159,7 +166,7 @@ jobs:
           if [ -d "${HELM_PATH}" ]; then
             echo "✅ Helm path found: ${HELM_PATH}"
             echo "   Files:"
-            ls -la "${HELM_PATH}" | grep -E 'values.*\.(yaml|yml)$' || echo "   (no values files)"
+            find "${HELM_PATH}" -type f -name "*values*.yaml" -o -name "*values*.yml" -exec basename {} \; || echo "   (no values files)"
             HELM_EXISTS=true
           else
             echo "⚠️  Helm path not found: ${HELM_PATH}"
@@ -180,7 +187,7 @@ jobs:
           fi
 
       # ═══════════════════════════════════════════════════════════
-      # 🔄 PASO 5: ACTUALIZAR KUBERNETES
+      # 🔄 PASO 5: ACTUALIZAR KUBERNETES (FIXED)
       # ═══════════════════════════════════════════════════════════
       - name: 🔄 Update Kubernetes manifests
         id: update_k8s
@@ -191,45 +198,66 @@ jobs:
           echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
           
           K8S_PATH="${{ steps.verify.outputs.k8s_path }}"
-          # Construir la imagen completa en formato GCP Artifact Registry
           NEW_IMAGE="${{ inputs.gcp_region }}-docker.pkg.dev/${{ inputs.gcp_project_id }}/${{ inputs.artifact_registry }}/${{ inputs.docker_image }}:${{ inputs.image_tag }}"
           IMAGE_PREFIX="${{ inputs.gcp_region }}-docker.pkg.dev/${{ inputs.gcp_project_id }}/${{ inputs.artifact_registry }}/${{ inputs.docker_image }}"
           
+          # SOLUCIÓN: Usar un archivo temporal para el contador
           K8S_COUNT=0
+          TEMP_FILE=$(mktemp)
+          echo "0" > "$TEMP_FILE"
           
+          # Buscar todos los archivos YAML/YML
           find "${K8S_PATH}" -type f \( -name "*.yaml" -o -name "*.yml" \) | while read -r file; do
             echo "📝 Processing: ${file}"
             
-            # Buscar cualquier imagen que coincida con nuestro patrón (sin importar el tag)
-            OLD_IMAGE=$(grep -E "^\s*image:\s*${IMAGE_PREFIX}:" "${file}" 2>/dev/null | head -1 | sed 's/^[[:space:]]*image:[[:space:]]*//')
+            # Buscar imagen que coincida con nuestro patrón
+            OLD_IMAGE=$(grep -E "^\s*image:\s*${IMAGE_PREFIX}" "${file}" 2>/dev/null | head -1 | sed 's/^[[:space:]]*image:[[:space:]]*//' | tr -d '"' | tr -d "'")
             
-            if [ -n "${OLD_IMAGE}" ] && [[ "${OLD_IMAGE}" != "${NEW_IMAGE}" ]]; then
-              echo "   📌 Old: ${OLD_IMAGE}"
-              echo "   ✨ New: ${NEW_IMAGE}"
+            if [ -n "${OLD_IMAGE}" ]; then
+              echo "   📌 Found: ${OLD_IMAGE}"
               
-              cp "${file}" "${file}.bak"
-              yq eval -i "(..|select(has(\"image\"))|select(.image == \"${OLD_IMAGE}\")).image = \"${NEW_IMAGE}\"" "${file}"
-              
-              if yq eval "${file}" > /dev/null 2>&1; then
-                echo "   ✅ Updated successfully"
-                rm "${file}.bak"
-                K8S_COUNT=$((K8S_COUNT + 1))
+              if [[ "${OLD_IMAGE}" != "${NEW_IMAGE}" ]]; then
+                echo "   ✨ Updating to: ${NEW_IMAGE}"
+                
+                # Crear backup
+                cp "${file}" "${file}.bak"
+                
+                # Actualizar con yq
+                yq eval -i "(..|select(has(\"image\"))|select(.image == \"${OLD_IMAGE}\")).image = \"${NEW_IMAGE}\"" "${file}"
+                
+                # Validar YAML
+                if yq eval "${file}" > /dev/null 2>&1; then
+                  echo "   ✅ Updated successfully"
+                  rm "${file}.bak"
+                  
+                  # Incrementar contador en archivo temporal
+                  COUNT=$(cat "$TEMP_FILE")
+                  echo $((COUNT + 1)) > "$TEMP_FILE"
+                else
+                  echo "   ❌ YAML validation failed, rolling back"
+                  mv "${file}.bak" "${file}"
+                fi
               else
-                echo "   ❌ YAML validation failed, rolling back"
-                mv "${file}.bak" "${file}"
+                echo "   ⏭️  Already up to date"
               fi
             else
-              echo "   ⏭️  No changes needed"
+              echo "   ⏭️  No matching image found"
             fi
+            echo ""
           done
           
-          echo ""
-          echo "📊 Total Kubernetes files updated: ${K8S_COUNT}"
-          echo "k8s_count=${K8S_COUNT}" >> $GITHUB_OUTPUT
+          # Leer el contador final
+          K8S_COUNT=$(cat "$TEMP_FILE")
+          rm "$TEMP_FILE"
+          
           echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+          echo "📊 Total Kubernetes files updated: ${K8S_COUNT}"
+          echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+          
+          echo "k8s_count=${K8S_COUNT}" >> $GITHUB_OUTPUT
 
       # ═══════════════════════════════════════════════════════════
-      # 🎯 PASO 6: ACTUALIZAR HELM
+      # 🎯 PASO 6: ACTUALIZAR HELM (FIXED)
       # ═══════════════════════════════════════════════════════════
       - name: 🎯 Update Helm values
         id: update_helm
@@ -240,49 +268,66 @@ jobs:
           echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
           
           HELM_PATH="${{ steps.verify.outputs.helm_path }}"
-          # Formato GCP: region-docker.pkg.dev/project-id/registry/image
           NEW_REPO="${{ inputs.gcp_region }}-docker.pkg.dev/${{ inputs.gcp_project_id }}/${{ inputs.artifact_registry }}/${{ inputs.docker_image }}"
           NEW_TAG="${{ inputs.image_tag }}"
           
+          # SOLUCIÓN: Usar archivo temporal para el contador
           HELM_COUNT=0
+          TEMP_FILE=$(mktemp)
+          echo "0" > "$TEMP_FILE"
           
           find "${HELM_PATH}" -type f \( -name "*values*.yaml" -o -name "*values*.yml" \) | while read -r file; do
             echo "📝 Processing: ${file}"
             
+            # Verificar si existe configuración de imagen
             HAS_IMAGE=$(yq eval '.image.repository' "${file}" 2>/dev/null)
             
-            if [[ "${HAS_IMAGE}" != "null" ]]; then
+            if [[ "${HAS_IMAGE}" != "null" ]] && [[ -n "${HAS_IMAGE}" ]]; then
               OLD_REPO=$(yq eval '.image.repository' "${file}")
               OLD_TAG=$(yq eval '.image.tag' "${file}")
               
+              echo "   📌 Current: ${OLD_REPO}:${OLD_TAG}"
+              
               if [[ "${OLD_REPO}" != "${NEW_REPO}" ]] || [[ "${OLD_TAG}" != "${NEW_TAG}" ]]; then
-                echo "   📌 Old: ${OLD_REPO}:${OLD_TAG}"
-                echo "   ✨ New: ${NEW_REPO}:${NEW_TAG}"
+                echo "   ✨ Updating to: ${NEW_REPO}:${NEW_TAG}"
                 
+                # Crear backup
                 cp "${file}" "${file}.bak"
+                
+                # Actualizar repository y tag
                 yq eval -i ".image.repository = \"${NEW_REPO}\"" "${file}"
                 yq eval -i ".image.tag = \"${NEW_TAG}\"" "${file}"
                 
+                # Validar YAML
                 if yq eval "${file}" > /dev/null 2>&1; then
                   echo "   ✅ Updated successfully"
                   rm "${file}.bak"
-                  HELM_COUNT=$((HELM_COUNT + 1))
+                  
+                  # Incrementar contador
+                  COUNT=$(cat "$TEMP_FILE")
+                  echo $((COUNT + 1)) > "$TEMP_FILE"
                 else
                   echo "   ❌ YAML validation failed, rolling back"
                   mv "${file}.bak" "${file}"
                 fi
               else
-                echo "   ⏭️  No changes needed"
+                echo "   ⏭️  Already up to date"
               fi
             else
               echo "   ⏭️  No image configuration found"
             fi
+            echo ""
           done
           
-          echo ""
-          echo "📊 Total Helm files updated: ${HELM_COUNT}"
-          echo "helm_count=${HELM_COUNT}" >> $GITHUB_OUTPUT
+          # Leer contador final
+          HELM_COUNT=$(cat "$TEMP_FILE")
+          rm "$TEMP_FILE"
+          
           echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+          echo "📊 Total Helm files updated: ${HELM_COUNT}"
+          echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+          
+          echo "helm_count=${HELM_COUNT}" >> $GITHUB_OUTPUT
 
       # ═══════════════════════════════════════════════════════════
       # 📊 PASO 7: CONSOLIDAR RESULTADOS
@@ -298,10 +343,13 @@ jobs:
           echo "helm_files_count=${HELM_COUNT}" >> $GITHUB_OUTPUT
           echo "total_files=${TOTAL}" >> $GITHUB_OUTPUT
           
-          if [ ${TOTAL} -gt 0 ]; then
-            echo "changed=true" >> $GITHUB_OUTPUT
-          else
+          # IMPORTANTE: Verificar si Git detecta cambios
+          if git diff --quiet && git diff --cached --quiet; then
             echo "changed=false" >> $GITHUB_OUTPUT
+            echo "⚠️  No Git changes detected"
+          else
+            echo "changed=true" >> $GITHUB_OUTPUT
+            echo "✅ Git changes detected"
           fi
           
           echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
@@ -309,14 +357,9 @@ jobs:
           echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
 
       # ═══════════════════════════════════════════════════════════
-      # 💾 PASO 8: COMMIT CAMBIOS
+      # 💾 PASO 8: COMMIT Y PUSH (FIXED)
       # ═══════════════════════════════════════════════════════════
-      - name: 🔧 Configure Git
-        run: |
-          git config --global user.name "github-actions[bot]"
-          git config --global user.email "github-actions[bot]@users.noreply.github.com"
-
-      - name: 💾 Commit changes directly
+      - name: 💾 Commit and push changes
         id: commit
         if: steps.consolidate.outputs.changed == 'true'
         run: |
@@ -324,12 +367,19 @@ jobs:
           echo "💾 COMMITTING CHANGES"
           echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
           
-          git add .
+          # Verificar cambios antes de commit
+          echo "📝 Git status:"
+          git status --short
+          echo ""
+          
+          # Agregar todos los cambios
+          git add -A
           
           echo "📝 Changed files:"
           git diff --cached --name-only
           echo ""
           
+          # Crear commit
           git commit -m "🔄 Update manifests - ${{ inputs.environment }} - ${{ inputs.image_tag }}" \
             -m "Project: ${{ inputs.project_name }}" \
             -m "Image: ${{ inputs.gcp_region }}-docker.pkg.dev/${{ inputs.gcp_project_id }}/${{ inputs.artifact_registry }}/${{ inputs.docker_image }}:${{ inputs.image_tag }}" \
@@ -339,14 +389,64 @@ jobs:
             -m "Triggered by: ${{ github.actor }}" \
             -m "Repository: ${{ github.repository }}"
           
-          git push origin HEAD:${{ inputs.target_branch }}
+          # Push con retry en caso de fallo
+          MAX_RETRIES=3
+          RETRY_COUNT=0
+          
+          while [ $RETRY_COUNT -lt $MAX_RETRIES ]; do
+            echo "🚀 Pushing changes (attempt $((RETRY_COUNT + 1))/${MAX_RETRIES})..."
+            
+            if git push origin HEAD:${{ inputs.target_branch }}; then
+              echo "✅ Push successful!"
+              break
+            else
+              RETRY_COUNT=$((RETRY_COUNT + 1))
+              if [ $RETRY_COUNT -lt $MAX_RETRIES ]; then
+                echo "⚠️  Push failed, retrying in 5 seconds..."
+                sleep 5
+                git pull --rebase origin ${{ inputs.target_branch }}
+              else
+                echo "❌ Push failed after ${MAX_RETRIES} attempts"
+                exit 1
+              fi
+            fi
+          done
           
           COMMIT_SHA=$(git rev-parse HEAD)
           echo "commit_sha=${COMMIT_SHA}" >> $GITHUB_OUTPUT
           
-          echo "✅ Committed and pushed successfully"
+          echo ""
+          echo "✅ Changes committed and pushed successfully"
           echo "   Commit: ${COMMIT_SHA}"
           echo "   Branch: ${{ inputs.target_branch }}"
+          echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+
+      # ═══════════════════════════════════════════════════════════
+      # ⚠️ PASO 8.5: DEBUG SI NO HAY CAMBIOS
+      # ═══════════════════════════════════════════════════════════
+      - name: ⚠️ Debug - No changes detected
+        if: steps.consolidate.outputs.changed == 'false'
+        run: |
+          echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+          echo "⚠️  DEBUG: NO CHANGES WERE DETECTED"
+          echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+          echo ""
+          echo "📊 Counters:"
+          echo "   K8s files: ${{ steps.consolidate.outputs.k8s_files_count }}"
+          echo "   Helm files: ${{ steps.consolidate.outputs.helm_files_count }}"
+          echo ""
+          echo "📂 Directory structure:"
+          ls -la kubernetes/${{ inputs.environment }}/ 2>/dev/null || echo "   Kubernetes directory not found"
+          ls -la helm/override/${{ inputs.environment }}/ 2>/dev/null || echo "   Helm directory not found"
+          echo ""
+          echo "🔍 Git status:"
+          git status
+          echo ""
+          echo "💡 Possible reasons:"
+          echo "   1. Files already contain the target image/tag"
+          echo "   2. Path structure doesn't match expected format"
+          echo "   3. No YAML files found in target directories"
+          echo "   4. Image pattern doesn't match files content"
           echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
 
       # ═══════════════════════════════════════════════════════════
@@ -354,15 +454,17 @@ jobs:
       # ═══════════════════════════════════════════════════════════
       - name: ✅ Set deployment status
         id: status
+        if: always()
         run: |
-          TOTAL="${{ steps.consolidate.outputs.total_files }}"
-          
-          if [ "${TOTAL}" -eq 0 ]; then
+          if [ "${{ steps.consolidate.outputs.changed }}" == "false" ]; then
             echo "status=skipped" >> $GITHUB_OUTPUT
             echo "ℹ️  No changes were needed"
-          else
+          elif [ "${{ steps.commit.outcome }}" == "success" ]; then
             echo "status=success" >> $GITHUB_OUTPUT
             echo "✅ Deployment completed successfully"
+          else
+            echo "status=failed" >> $GITHUB_OUTPUT
+            echo "❌ Deployment failed"
           fi
 
       # ═══════════════════════════════════════════════════════════
@@ -370,8 +472,9 @@ jobs:
       # ═══════════════════════════════════════════════════════════
       - name: 📊 Export deployment outputs
         id: deploy
+        if: always()
         run: |
-          echo "commit_sha=${{ steps.commit.outputs.commit_sha }}" >> $GITHUB_OUTPUT
+          echo "commit_sha=${{ steps.commit.outputs.commit_sha || 'none' }}" >> $GITHUB_OUTPUT
           echo "k8s_files_count=${{ steps.consolidate.outputs.k8s_files_count }}" >> $GITHUB_OUTPUT
           echo "helm_files_count=${{ steps.consolidate.outputs.helm_files_count }}" >> $GITHUB_OUTPUT
           echo "files_updated=kubernetes+helm" >> $GITHUB_OUTPUT
@@ -395,28 +498,9 @@ jobs:
           echo ""
           echo "📌 Status: ${{ steps.status.outputs.status }}"
           
-          if [ "${{ steps.commit.outputs.commit_sha }}" != "" ]; then
+          if [ "${{ steps.commit.outputs.commit_sha }}" != "" ] && [ "${{ steps.commit.outputs.commit_sha }}" != "none" ]; then
             echo "✅ Commit: ${{ steps.commit.outputs.commit_sha }}"
+            echo "🔗 https://github.com/dariasmoises979-blip/pipeline-build/commit/${{ steps.commit.outputs.commit_sha }}"
           fi
           
           echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-
-
-# #############################################
-# 📋 EJEMPLO DE USO
-# #############################################
-#
-# jobs:
-#   deploy-to-staging:
-#     uses: ./.github/workflows/deployment-gitops.yml
-#     with:
-#       project_name: mi-aplicacion
-#       docker_image: mi-app
-#       gcp_project_id: elite-ceremony-476307-s9
-#       gcp_region: us-central1
-#       artifact_registry: artifact_dariasmoises979
-#       environment: staging
-#       image_tag: staging-abc1234  # Tag generado por build-image.yml
-#       target_branch: main
-#     secrets:
-#       GH_TOKEN: ${{ secrets.GH_TOKEN }}
