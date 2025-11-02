@@ -1,11 +1,11 @@
 ########################################
-# 🚀 WORKFLOW REUSABLE: GitOps Deployment
+# 🚀 WORKFLOW REUSABLE: GitOps Deployment (GCP Artifact Registry)
 # Orchestrador principal para despliegues GitOps
 # Actualiza manifiestos de Kubernetes y Helm
-# deployment-gitops.yml v2.2 - FULLY FIXED
+# deployment-gitops.yml v3.0 - GCP ARTIFACT REGISTRY
 ########################################
 
-name: Reusable GitOps Deployment
+name: Reusable GitOps Deployment (GCP)
 
 on:
   workflow_call:
@@ -15,11 +15,19 @@ on:
         required: true
         type: string
       docker_image:
-        description: 'Nombre de la imagen Docker (sin usuario/tag)'
+        description: 'Nombre de la imagen Docker (sin tag)'
         required: true
         type: string
-      dockerhub_username:
-        description: 'Usuario de Docker Hub'
+      gcp_project_id:
+        description: 'ID del proyecto de GCP'
+        required: true
+        type: string
+      gcp_region:
+        description: 'Región de GCP donde está el Artifact Registry (ej: europe-west1)'
+        required: true
+        type: string
+      artifact_registry:
+        description: 'Nombre del repositorio de Artifact Registry'
         required: true
         type: string
       environment:
@@ -80,11 +88,13 @@ jobs:
       - name: 📊 Deployment Information
         run: |
           echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-          echo "🚀 GITOPS DEPLOYMENT ORCHESTRATION"
+          echo "🚀 GITOPS DEPLOYMENT ORCHESTRATION (GCP)"
           echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
           echo "📦 Project: ${{ inputs.project_name }}"
           echo "🌍 Environment: ${{ inputs.environment }}"
-          echo "🐳 Image: ${{ inputs.dockerhub_username }}/${{ inputs.docker_image }}:${{ inputs.image_tag }}"
+          echo "☁️  GCP Project: ${{ inputs.gcp_project_id }}"
+          echo "📍 Registry: ${{ inputs.gcp_region }}-docker.pkg.dev/${{ inputs.gcp_project_id }}/${{ inputs.artifact_registry }}"
+          echo "🐳 Image: ${{ inputs.gcp_region }}-docker.pkg.dev/${{ inputs.gcp_project_id }}/${{ inputs.artifact_registry }}/${{ inputs.docker_image }}:${{ inputs.image_tag }}"
           echo "🌿 Target Branch: ${{ inputs.target_branch }}"
           echo ""
           echo "📂 Target Repository: dariasmoises979-blip/pipeline-build"
@@ -181,14 +191,17 @@ jobs:
           echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
           
           K8S_PATH="${{ steps.verify.outputs.k8s_path }}"
-          NEW_IMAGE="${{ inputs.dockerhub_username }}/${{ inputs.docker_image }}:${{ inputs.image_tag }}"
+          # Construir la imagen completa en formato GCP Artifact Registry
+          NEW_IMAGE="${{ inputs.gcp_region }}-docker.pkg.dev/${{ inputs.gcp_project_id }}/${{ inputs.artifact_registry }}/${{ inputs.docker_image }}:${{ inputs.image_tag }}"
+          IMAGE_PREFIX="${{ inputs.gcp_region }}-docker.pkg.dev/${{ inputs.gcp_project_id }}/${{ inputs.artifact_registry }}/${{ inputs.docker_image }}"
           
           K8S_COUNT=0
           
           find "${K8S_PATH}" -type f \( -name "*.yaml" -o -name "*.yml" \) | while read -r file; do
             echo "📝 Processing: ${file}"
             
-            OLD_IMAGE=$(grep -E "^\s*image:\s*${{ inputs.dockerhub_username }}/${{ inputs.docker_image }}:" "${file}" 2>/dev/null | head -1 | sed 's/^[[:space:]]*image:[[:space:]]*//')
+            # Buscar cualquier imagen que coincida con nuestro patrón (sin importar el tag)
+            OLD_IMAGE=$(grep -E "^\s*image:\s*${IMAGE_PREFIX}:" "${file}" 2>/dev/null | head -1 | sed 's/^[[:space:]]*image:[[:space:]]*//')
             
             if [ -n "${OLD_IMAGE}" ] && [[ "${OLD_IMAGE}" != "${NEW_IMAGE}" ]]; then
               echo "   📌 Old: ${OLD_IMAGE}"
@@ -227,7 +240,8 @@ jobs:
           echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
           
           HELM_PATH="${{ steps.verify.outputs.helm_path }}"
-          NEW_REPO="${{ inputs.dockerhub_username }}/${{ inputs.docker_image }}"
+          # Formato GCP: region-docker.pkg.dev/project-id/registry/image
+          NEW_REPO="${{ inputs.gcp_region }}-docker.pkg.dev/${{ inputs.gcp_project_id }}/${{ inputs.artifact_registry }}/${{ inputs.docker_image }}"
           NEW_TAG="${{ inputs.image_tag }}"
           
           HELM_COUNT=0
@@ -318,7 +332,7 @@ jobs:
           
           git commit -m "🔄 Update manifests - ${{ inputs.environment }} - ${{ inputs.image_tag }}" \
             -m "Project: ${{ inputs.project_name }}" \
-            -m "Image: ${{ inputs.dockerhub_username }}/${{ inputs.docker_image }}:${{ inputs.image_tag }}" \
+            -m "Image: ${{ inputs.gcp_region }}-docker.pkg.dev/${{ inputs.gcp_project_id }}/${{ inputs.artifact_registry }}/${{ inputs.docker_image }}:${{ inputs.image_tag }}" \
             -m "K8s files: ${{ steps.consolidate.outputs.k8s_files_count }}" \
             -m "Helm files: ${{ steps.consolidate.outputs.helm_files_count }}" \
             -m "" \
@@ -370,7 +384,9 @@ jobs:
           echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
           echo "🌍 Environment: ${{ inputs.environment }}"
           echo "📦 Project: ${{ inputs.project_name }}"
-          echo "🐳 Image: ${{ inputs.dockerhub_username }}/${{ inputs.docker_image }}:${{ inputs.image_tag }}"
+          echo "☁️  GCP Project: ${{ inputs.gcp_project_id }}"
+          echo "📍 Registry: ${{ inputs.artifact_registry }}"
+          echo "🐳 Image: ${{ inputs.gcp_region }}-docker.pkg.dev/${{ inputs.gcp_project_id }}/${{ inputs.artifact_registry }}/${{ inputs.docker_image }}:${{ inputs.image_tag }}"
           echo ""
           echo "📊 Files Updated:"
           echo "   • Kubernetes: ${{ steps.consolidate.outputs.k8s_files_count }}"
@@ -384,3 +400,23 @@ jobs:
           fi
           
           echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+
+
+# #############################################
+# 📋 EJEMPLO DE USO
+# #############################################
+#
+# jobs:
+#   deploy-to-staging:
+#     uses: ./.github/workflows/deployment-gitops.yml
+#     with:
+#       project_name: mi-aplicacion
+#       docker_image: mi-app
+#       gcp_project_id: elite-ceremony-476307-s9
+#       gcp_region: us-central1
+#       artifact_registry: artifact_dariasmoises979
+#       environment: staging
+#       image_tag: staging-abc1234  # Tag generado por build-image.yml
+#       target_branch: main
+#     secrets:
+#       GH_TOKEN: ${{ secrets.GH_TOKEN }}
