@@ -1,0 +1,387 @@
+########################################
+# 🐳 WORKFLOW REUSABLE: Build & Push Docker Image to GCP Artifact Registry
+# Construye y publica imágenes Docker en Google Artifact Registry
+# con tags automáticos basados en el entorno (pro, pre, staging) y commit SHA
+# 🆕 DEVUELVE EL TAG GENERADO COMO OUTPUT
+# build-image.yml
+########################################
+
+name: Reusable Build & Push Docker (GCP Artifact Registry)
+
+# 🔧 Definir como workflow reusable con inputs configurables
+on:
+  workflow_call:
+    inputs:
+      docker_image:
+        description: 'Nombre de la imagen Docker (sin tag, ej: mi-app)'
+        required: true
+        type: string
+      gcp_project_id:
+        description: 'ID del proyecto de GCP'
+        required: true
+        type: string
+      gcp_region:
+        description: 'Región de GCP donde está el Artifact Registry (ej: europe-west1)'
+        required: true
+        type: string
+      artifact_registry:
+        description: 'Nombre del repositorio de Artifact Registry'
+        required: true
+        type: string
+      environment:
+        description: 'Entorno de deployment (pro/pre/staging/dev)'
+        required: false
+        type: string
+        default: 'dev'
+      dockerfile_path:
+        description: 'Ruta al Dockerfile (relativo al contexto)'
+        required: false
+        type: string
+        default: './Dockerfile'
+      build_context:
+        description: 'Directorio de contexto para el build'
+        required: false
+        type: string
+        default: '.'
+      additional_tags:
+        description: 'Tags adicionales separados por coma (ej: v1.0.0,stable)'
+        required: false
+        type: string
+        default: ''
+      # ═══════════════════════════════════════════════════════════
+      # 🆕 INPUTS PARA REPOSITORIO EXTERNO
+      # ═══════════════════════════════════════════════════════════
+      external_repo:
+        description: 'Repositorio externo a clonar (ej: dariasmoises979-blip/app)'
+        required: false
+        type: string
+        default: ''
+      external_repo_ref:
+        description: 'Branch/tag/SHA del repositorio externo (default: main)'
+        required: false
+        type: string
+        default: 'main'
+      external_repo_path:
+        description: 'Directorio donde clonar el repo externo (default: ./external)'
+        required: false
+        type: string
+        default: './external'
+    secrets:
+      GCP_SA_KEY:
+        description: 'Service Account Key JSON de GCP para autenticación'
+        required: true
+      EXTERNAL_REPO_TOKEN:
+        description: 'Token para clonar repositorio privado (opcional)'
+        required: false
+    
+    # ═══════════════════════════════════════════════════════════
+    # 🆕 OUTPUTS: DEVOLVER INFORMACIÓN DEL BUILD
+    # ═══════════════════════════════════════════════════════════
+    outputs:
+      image_tag:
+        description: 'Tag principal generado (formato: environment-shortsha)'
+        value: ${{ jobs.docker-build-push.outputs.image_tag }}
+      full_image:
+        description: 'Imagen completa con tag (region-docker.pkg.dev/project/registry/image:tag)'
+        value: ${{ jobs.docker-build-push.outputs.full_image }}
+      short_sha:
+        description: 'SHA corto del commit (7 caracteres)'
+        value: ${{ jobs.docker-build-push.outputs.short_sha }}
+      all_tags:
+        description: 'Todos los tags generados (separados por coma)'
+        value: ${{ jobs.docker-build-push.outputs.all_tags }}
+
+jobs:
+  # ═══════════════════════════════════════════════════════════
+  # 🐳 JOB: BUILD & PUSH DOCKER IMAGE
+  # ═══════════════════════════════════════════════════════════
+  docker-build-push:
+    name: Build & Push Docker Image to GCP
+    runs-on: ubuntu-latest
+    
+    # ═══════════════════════════════════════════════════════════
+    # 🆕 OUTPUTS DEL JOB
+    # ═══════════════════════════════════════════════════════════
+    outputs:
+      image_tag: ${{ steps.tags.outputs.primary_tag }}
+      full_image: ${{ steps.tags.outputs.full_image }}
+      short_sha: ${{ steps.tags.outputs.short_sha }}
+      all_tags: ${{ steps.tags.outputs.all_tags_list }}
+    
+    steps:
+      # ═══════════════════════════════════════════════════════════
+      # 📥 PASO 1: CHECKOUT DEL REPOSITORIO ACTUAL
+      # ═══════════════════════════════════════════════════════════
+      - name: Checkout current repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+
+      # ═══════════════════════════════════════════════════════════
+      # 📥 PASO 2: CHECKOUT DEL REPOSITORIO EXTERNO (OPCIONAL)
+      # ═══════════════════════════════════════════════════════════
+      # Solo se ejecuta si se especificó un repositorio externo
+      - name: Checkout external repository
+        if: inputs.external_repo != ''
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ inputs.external_repo }}
+          ref: ${{ inputs.external_repo_ref }}
+          path: ${{ inputs.external_repo_path }}
+          token: ${{ secrets.EXTERNAL_REPO_TOKEN || github.token }}
+          fetch-depth: 0
+
+      # ═══════════════════════════════════════════════════════════
+      # 🔐 PASO 3: AUTENTICACIÓN CON GCP
+      # ═══════════════════════════════════════════════════════════
+      - name: Authenticate to Google Cloud
+        uses: google-github-actions/auth@v2
+        with:
+          credentials_json: ${{ secrets.GCP_SA_KEY }}
+
+      # ═══════════════════════════════════════════════════════════
+      # ⚙️ PASO 4: CONFIGURAR GCLOUD CLI
+      # ═══════════════════════════════════════════════════════════
+      - name: Set up Cloud SDK
+        uses: google-github-actions/setup-gcloud@v2
+        with:
+          project_id: ${{ inputs.gcp_project_id }}
+
+      # ═══════════════════════════════════════════════════════════
+      # 🔍 PASO 5: VERIFICAR ESTRUCTURA DE ARCHIVOS
+      # ═══════════════════════════════════════════════════════════
+      - name: Verify file structure
+        run: |
+          echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+          echo "📂 FILE STRUCTURE VERIFICATION"
+          echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+          echo "📁 Current directory:"
+          pwd
+          echo ""
+          echo "📋 Directory listing:"
+          ls -la
+          echo ""
+          if [[ -n "${{ inputs.external_repo }}" ]]; then
+            echo "📦 External repo directory (${{ inputs.external_repo_path }}):"
+            ls -la ${{ inputs.external_repo_path }} || echo "❌ Directory not found"
+            echo ""
+            echo "📦 External repo subdirectories:"
+            ls -la ${{ inputs.external_repo_path }}/local || echo "❌ local/ not found"
+            echo ""
+          fi
+          echo "🔍 Build context (${{ inputs.build_context }}):"
+          ls -la ${{ inputs.build_context }} || echo "❌ Directory not found"
+          echo ""
+          echo "📄 Dockerfile location (${{ inputs.dockerfile_path }}):"
+          ls -la ${{ inputs.dockerfile_path }} || echo "❌ File not found"
+          echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+
+      # ═══════════════════════════════════════════════════════════
+      # 🏷️ PASO 6: GENERAR TAGS DINÁMICOS
+      # ═══════════════════════════════════════════════════════════
+      - name: Generate dynamic tags
+        id: tags
+        run: |
+          ENVIRONMENT="${{ inputs.environment }}"
+          COMMIT_SHA="${{ github.sha }}"
+          SHORT_SHA="${COMMIT_SHA:0:7}"
+          BRANCH_NAME="${{ github.ref_name }}"
+          
+          # Base URL del Artifact Registry
+          REGISTRY_URL="${{ inputs.gcp_region }}-docker.pkg.dev"
+          IMAGE_BASE="${REGISTRY_URL}/${{ inputs.gcp_project_id }}/${{ inputs.artifact_registry }}/${{ inputs.docker_image }}"
+          
+          # ═══════════════════════════════════════════════════════════
+          # 🎯 TAG PRINCIPAL (este se usará para el deployment)
+          # ═══════════════════════════════════════════════════════════
+          PRIMARY_TAG="${ENVIRONMENT}-${SHORT_SHA}"
+          
+          TAGS=()
+          TAGS+=("${PRIMARY_TAG}")           # dev-abc1234 (PRINCIPAL)
+          TAGS+=("${ENVIRONMENT}")           # dev
+          
+          if [[ "${BRANCH_NAME}" == "main" || "${BRANCH_NAME}" == "master" ]]; then
+            TAGS+=("latest")
+          fi
+          
+          SAFE_BRANCH_NAME=$(echo "${BRANCH_NAME}" | sed 's/\//-/g')
+          TAGS+=("${SAFE_BRANCH_NAME}-${SHORT_SHA}")
+          
+          if [[ -n "${{ inputs.additional_tags }}" ]]; then
+            IFS=',' read -ra EXTRA_TAGS <<< "${{ inputs.additional_tags }}"
+            for tag in "${EXTRA_TAGS[@]}"; do
+              tag=$(echo "${tag}" | xargs)
+              if [[ -n "${tag}" ]]; then
+                TAGS+=("${tag}")
+              fi
+            done
+          fi
+          
+          # Construir string de tags para Docker
+          DOCKER_TAGS=""
+          for tag in "${TAGS[@]}"; do
+            DOCKER_TAGS="${DOCKER_TAGS}${IMAGE_BASE}:${tag},"
+          done
+          DOCKER_TAGS="${DOCKER_TAGS%,}"
+          
+          # ═══════════════════════════════════════════════════════════
+          # 📤 EXPORTAR OUTPUTS
+          # ═══════════════════════════════════════════════════════════
+          echo "tags=${DOCKER_TAGS}" >> $GITHUB_OUTPUT
+          echo "primary_tag=${PRIMARY_TAG}" >> $GITHUB_OUTPUT
+          echo "full_image=${IMAGE_BASE}:${PRIMARY_TAG}" >> $GITHUB_OUTPUT
+          echo "short_sha=${SHORT_SHA}" >> $GITHUB_OUTPUT
+          echo "image_base=${IMAGE_BASE}" >> $GITHUB_OUTPUT
+          
+          # Lista de todos los tags (separados por coma)
+          ALL_TAGS_LIST=$(IFS=,; echo "${TAGS[*]}")
+          echo "all_tags_list=${ALL_TAGS_LIST}" >> $GITHUB_OUTPUT
+          
+          # ═══════════════════════════════════════════════════════════
+          # 📊 REPORTE DE TAGS GENERADOS
+          # ═══════════════════════════════════════════════════════════
+          echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+          echo "🏷️  TAGS GENERADOS PARA LA IMAGEN DOCKER"
+          echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+          echo "📦 Imagen base: ${{ inputs.docker_image }}"
+          echo "🌍 Entorno: ${ENVIRONMENT}"
+          echo "🔗 Commit SHA: ${COMMIT_SHA}"
+          echo "🌿 Rama: ${BRANCH_NAME}"
+          echo "☁️  GCP Project: ${{ inputs.gcp_project_id }}"
+          echo "📍 Registry: ${REGISTRY_URL}/${{ inputs.gcp_project_id }}/${{ inputs.artifact_registry }}"
+          if [[ -n "${{ inputs.external_repo }}" ]]; then
+            echo "📦 Repositorio externo: ${{ inputs.external_repo }}"
+            echo "🌿 Ref externo: ${{ inputs.external_repo_ref }}"
+          fi
+          echo ""
+          echo "🎯 TAG PRINCIPAL (para deployment):"
+          echo "   ⭐ ${IMAGE_BASE}:${PRIMARY_TAG}"
+          echo ""
+          echo "📋 Todos los tags generados:"
+          for tag in "${TAGS[@]}"; do
+            if [[ "${tag}" == "${PRIMARY_TAG}" ]]; then
+              echo "   • ${IMAGE_BASE}:${tag} ⭐ (PRIMARY)"
+            else
+              echo "   • ${IMAGE_BASE}:${tag}"
+            fi
+          done
+          echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+
+      # ═══════════════════════════════════════════════════════════
+      # 🔐 PASO 7: CONFIGURAR DOCKER PARA ARTIFACT REGISTRY
+      # ═══════════════════════════════════════════════════════════
+      - name: Configure Docker for Artifact Registry
+        run: |
+          gcloud auth configure-docker ${{ inputs.gcp_region }}-docker.pkg.dev --quiet
+          echo "✅ Docker configured for GCP Artifact Registry"
+
+      # ═══════════════════════════════════════════════════════════
+      # ⚙️ PASO 8: CONFIGURAR DOCKER BUILDX
+      # ═══════════════════════════════════════════════════════════
+      - name: Setup Docker Buildx
+        uses: docker/setup-buildx-action@v3
+        with:
+          driver: docker-container
+
+      # ═══════════════════════════════════════════════════════════
+      # 🏗️ PASO 9: BUILD & PUSH DE LA IMAGEN DOCKER
+      # ═══════════════════════════════════════════════════════════
+      - name: Build and Push Docker Image to GCP
+        uses: docker/build-push-action@v6
+        with:
+          context: ${{ inputs.build_context }}
+          file: ${{ inputs.dockerfile_path }}
+          push: true
+          tags: ${{ steps.tags.outputs.tags }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+          build-args: |
+            BUILD_DATE=${{ github.event.head_commit.timestamp }}
+            VCS_REF=${{ github.sha }}
+            VERSION=${{ inputs.environment }}-${{ github.sha }}
+
+      # ═══════════════════════════════════════════════════════════
+      # 📊 PASO 10: REPORTE DE BUILD EXITOSO
+      # ═══════════════════════════════════════════════════════════
+      - name: Build Summary Report
+        if: success()
+        run: |
+          echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+          echo "✅ DOCKER IMAGE BUILD & PUSH SUCCESSFUL"
+          echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+          echo "☁️  GCP Console: https://console.cloud.google.com/artifacts/docker/${{ inputs.gcp_project_id }}/${{ inputs.gcp_region }}/${{ inputs.artifact_registry }}"
+          echo "📦 Image Name: ${{ inputs.docker_image }}"
+          echo "🌍 Environment: ${{ inputs.environment }}"
+          echo "📍 Registry: ${{ inputs.gcp_region }}-docker.pkg.dev/${{ inputs.gcp_project_id }}/${{ inputs.artifact_registry }}"
+          echo "🔗 Commit SHA: ${{ github.sha }}"
+          echo "👤 Triggered by: ${{ github.actor }}"
+          echo "🕐 Date: $(date -u +'%Y-%m-%d %H:%M:%S UTC')"
+          if [[ -n "${{ inputs.external_repo }}" ]]; then
+            echo "📦 External Repo: ${{ inputs.external_repo }} @ ${{ inputs.external_repo_ref }}"
+          fi
+          echo ""
+          echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+          echo "🎯 OUTPUT PARA DEPLOYMENT"
+          echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+          echo "🏷️  Primary Tag: ${{ steps.tags.outputs.primary_tag }}"
+          echo "📦 Full Image: ${{ steps.tags.outputs.full_image }}"
+          echo "🔗 Short SHA: ${{ steps.tags.outputs.short_sha }}"
+          echo "📋 All Tags: ${{ steps.tags.outputs.all_tags_list }}"
+          echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+          echo ""
+          echo "📋 Pull Commands:"
+          echo "   gcloud auth configure-docker ${{ inputs.gcp_region }}-docker.pkg.dev"
+          echo "   docker pull ${{ steps.tags.outputs.full_image }}"
+          echo "   docker pull ${{ steps.tags.outputs.image_base }}:${{ inputs.environment }}"
+          echo ""
+          echo "🔗 Workflow Run: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+          echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+
+      # ═══════════════════════════════════════════════════════════
+      # ❌ PASO 11: MANEJO DE ERRORES
+      # ═══════════════════════════════════════════════════════════
+      - name: Build Failure Report
+        if: failure()
+        run: |
+          echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+          echo "❌ DOCKER BUILD FAILED"
+          echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+          echo "⚠️  Possible reasons:"
+          echo "   • Dockerfile syntax errors"
+          echo "   • Missing dependencies in build context"
+          echo "   • GCP authentication issues"
+          echo "   • Artifact Registry not enabled or doesn't exist"
+          echo "   • Service Account lacks necessary permissions"
+          echo "   • Network or timeout problems"
+          echo "   • Insufficient disk space"
+          echo "   • External repository not accessible"
+          echo ""
+          echo "🔍 Debug steps:"
+          echo "   1. Check Dockerfile at: ${{ inputs.dockerfile_path }}"
+          echo "   2. Verify build context: ${{ inputs.build_context }}"
+          echo "   3. Verify GCP Service Account has 'Artifact Registry Writer' role"
+          echo "   4. Ensure Artifact Registry API is enabled"
+          echo "   5. Check registry exists: ${{ inputs.gcp_region }}-docker.pkg.dev/${{ inputs.gcp_project_id }}/${{ inputs.artifact_registry }}"
+          if [[ -n "${{ inputs.external_repo }}" ]]; then
+            echo "   6. Verify external repo access: ${{ inputs.external_repo }}"
+            echo "   7. Check EXTERNAL_REPO_TOKEN if repo is private"
+          fi
+          echo "   8. Check workflow logs above for specific errors"
+          echo ""
+          echo "🔗 Workflow Run: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+          echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+          exit 1
+
+
+
+  # #############################################
+
+  # uses: ./.github/workflows/build-image.yml
+  # with:
+  #   gcp_project_id: GCP_SA_KEY 
+  #   gcp_region: us-central1
+  #   artifact_registry: artifact_dariasmoises979
+  #   environment: production
+  # secrets:
+  #   GCP_SA_KEY: ${{ secrets.GCP_SA_KEY }}
