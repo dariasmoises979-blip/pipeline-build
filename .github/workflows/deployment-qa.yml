@@ -533,7 +533,7 @@ jobs:
           
           if [ "${{ steps.commit.outputs.commit_sha }}" != "" ] && [ "${{ steps.commit.outputs.commit_sha }}" != "none" ]; then
             echo "✅ Commit: ${{ steps.commit.outputs.commit_sha }}"
-            echo "🔗 https://github.com/dariasmoises979-blip/pipeline-buil
+            echo "🔗 https://github.com/dariasmoises979-blip/pipeline-buil"
 # ═══════════════════════════════════════════════════════════
 # 📖 EJEMPLO DE USO
 # ═══════════════════════════════════════════════════════════
