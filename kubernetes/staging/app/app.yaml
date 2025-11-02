@@ -20,6 +20,8 @@ spec:
       containers:
       - name: qa-info
         image: dariasmoises979/mi-aplicacion:staging
+        magePullSecrets:
+        - name: gcp-artifact-registry
         ports:
         - containerPort: 5000  # Corregido: tu Dockerfile expone 5000, no 80
           name: http
