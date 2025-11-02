@@ -1,8 +1,8 @@
 ########################################
-# 🚀 WORKFLOW REUSABLE: GitOps Deployment (GCP Artifact Registry) - FIXED
+# 🚀 WORKFLOW REUSABLE: GitOps Deployment (GCP Artifact Registry) - FLEXIBLE
 # Orchestrador principal para despliegues GitOps
 # Actualiza manifiestos de Kubernetes y Helm
-# deployment-gitops.yml v3.1 - GCP ARTIFACT REGISTRY - FIXED
+# deployment-gitops.yml v3.2 - FLEXIBLE IMAGE MATCHING
 ########################################
 
 name: Reusable GitOps Deployment (GCP)
@@ -94,7 +94,7 @@ jobs:
           echo "🌍 Environment: ${{ inputs.environment }}"
           echo "☁️  GCP Project: ${{ inputs.gcp_project_id }}"
           echo "📍 Registry: ${{ inputs.gcp_region }}-docker.pkg.dev/${{ inputs.gcp_project_id }}/${{ inputs.artifact_registry }}"
-          echo "🐳 Image: ${{ inputs.gcp_region }}-docker.pkg.dev/${{ inputs.gcp_project_id }}/${{ inputs.artifact_registry }}/${{ inputs.docker_image }}:${{ inputs.image_tag }}"
+          echo "🐳 Target Image: ${{ inputs.gcp_region }}-docker.pkg.dev/${{ inputs.gcp_project_id }}/${{ inputs.artifact_registry }}/${{ inputs.docker_image }}:${{ inputs.image_tag }}"
           echo "🌿 Target Branch: ${{ inputs.target_branch }}"
           echo ""
           echo "📂 Target Repository: dariasmoises979-blip/pipeline-build"
@@ -166,7 +166,7 @@ jobs:
           if [ -d "${HELM_PATH}" ]; then
             echo "✅ Helm path found: ${HELM_PATH}"
             echo "   Files:"
-            find "${HELM_PATH}" -type f -name "*values*.yaml" -o -name "*values*.yml" -exec basename {} \; || echo "   (no values files)"
+            find "${HELM_PATH}" -type f \( -name "*values*.yaml" -o -name "*values*.yml" \) -exec basename {} \; || echo "   (no values files)"
             HELM_EXISTS=true
           else
             echo "⚠️  Helm path not found: ${HELM_PATH}"
@@ -187,7 +187,7 @@ jobs:
           fi
 
       # ═══════════════════════════════════════════════════════════
-      # 🔄 PASO 5: ACTUALIZAR KUBERNETES (FIXED)
+      # 🔄 PASO 5: ACTUALIZAR KUBERNETES (FLEXIBLE MATCHING)
       # ═══════════════════════════════════════════════════════════
       - name: 🔄 Update Kubernetes manifests
         id: update_k8s
@@ -199,10 +199,13 @@ jobs:
           
           K8S_PATH="${{ steps.verify.outputs.k8s_path }}"
           NEW_IMAGE="${{ inputs.gcp_region }}-docker.pkg.dev/${{ inputs.gcp_project_id }}/${{ inputs.artifact_registry }}/${{ inputs.docker_image }}:${{ inputs.image_tag }}"
-          IMAGE_PREFIX="${{ inputs.gcp_region }}-docker.pkg.dev/${{ inputs.gcp_project_id }}/${{ inputs.artifact_registry }}/${{ inputs.docker_image }}"
+          IMAGE_NAME="${{ inputs.docker_image }}"
           
-          # SOLUCIÓN: Usar un archivo temporal para el contador
-          K8S_COUNT=0
+          echo "🎯 Target image: ${NEW_IMAGE}"
+          echo "🔍 Looking for images containing: ${IMAGE_NAME}"
+          echo ""
+          
+          # Usar archivo temporal para el contador
           TEMP_FILE=$(mktemp)
           echo "0" > "$TEMP_FILE"
           
@@ -210,8 +213,9 @@ jobs:
           find "${K8S_PATH}" -type f \( -name "*.yaml" -o -name "*.yml" \) | while read -r file; do
             echo "📝 Processing: ${file}"
             
-            # Buscar imagen que coincida con nuestro patrón
-            OLD_IMAGE=$(grep -E "^\s*image:\s*${IMAGE_PREFIX}" "${file}" 2>/dev/null | head -1 | sed 's/^[[:space:]]*image:[[:space:]]*//' | tr -d '"' | tr -d "'")
+            # ESTRATEGIA FLEXIBLE: Buscar cualquier imagen que contenga el nombre de la imagen
+            # Esto captura: dariasmoises979/mi-aplicacion, us-central1-docker.pkg.dev/.../mi-aplicacion, etc.
+            OLD_IMAGE=$(grep -E "^\s*image:\s*.*${IMAGE_NAME}" "${file}" 2>/dev/null | head -1 | sed 's/^[[:space:]]*image:[[:space:]]*//' | tr -d '"' | tr -d "'")
             
             if [ -n "${OLD_IMAGE}" ]; then
               echo "   📌 Found: ${OLD_IMAGE}"
@@ -222,15 +226,15 @@ jobs:
                 # Crear backup
                 cp "${file}" "${file}.bak"
                 
-                # Actualizar con yq
-                yq eval -i "(..|select(has(\"image\"))|select(.image == \"${OLD_IMAGE}\")).image = \"${NEW_IMAGE}\"" "${file}"
+                # Actualizar usando sed (más robusto que yq para este caso)
+                sed -i "s|image:.*${IMAGE_NAME}.*|image: ${NEW_IMAGE}|g" "${file}"
                 
                 # Validar YAML
                 if yq eval "${file}" > /dev/null 2>&1; then
                   echo "   ✅ Updated successfully"
                   rm "${file}.bak"
                   
-                  # Incrementar contador en archivo temporal
+                  # Incrementar contador
                   COUNT=$(cat "$TEMP_FILE")
                   echo $((COUNT + 1)) > "$TEMP_FILE"
                 else
@@ -257,7 +261,7 @@ jobs:
           echo "k8s_count=${K8S_COUNT}" >> $GITHUB_OUTPUT
 
       # ═══════════════════════════════════════════════════════════
-      # 🎯 PASO 6: ACTUALIZAR HELM (FIXED)
+      # 🎯 PASO 6: ACTUALIZAR HELM (FLEXIBLE MATCHING)
       # ═══════════════════════════════════════════════════════════
       - name: 🎯 Update Helm values
         id: update_helm
@@ -270,9 +274,14 @@ jobs:
           HELM_PATH="${{ steps.verify.outputs.helm_path }}"
           NEW_REPO="${{ inputs.gcp_region }}-docker.pkg.dev/${{ inputs.gcp_project_id }}/${{ inputs.artifact_registry }}/${{ inputs.docker_image }}"
           NEW_TAG="${{ inputs.image_tag }}"
+          IMAGE_NAME="${{ inputs.docker_image }}"
           
-          # SOLUCIÓN: Usar archivo temporal para el contador
-          HELM_COUNT=0
+          echo "🎯 Target repository: ${NEW_REPO}"
+          echo "🎯 Target tag: ${NEW_TAG}"
+          echo "🔍 Looking for images containing: ${IMAGE_NAME}"
+          echo ""
+          
+          # Usar archivo temporal para el contador
           TEMP_FILE=$(mktemp)
           echo "0" > "$TEMP_FILE"
           
@@ -288,30 +297,35 @@ jobs:
               
               echo "   📌 Current: ${OLD_REPO}:${OLD_TAG}"
               
-              if [[ "${OLD_REPO}" != "${NEW_REPO}" ]] || [[ "${OLD_TAG}" != "${NEW_TAG}" ]]; then
-                echo "   ✨ Updating to: ${NEW_REPO}:${NEW_TAG}"
-                
-                # Crear backup
-                cp "${file}" "${file}.bak"
-                
-                # Actualizar repository y tag
-                yq eval -i ".image.repository = \"${NEW_REPO}\"" "${file}"
-                yq eval -i ".image.tag = \"${NEW_TAG}\"" "${file}"
-                
-                # Validar YAML
-                if yq eval "${file}" > /dev/null 2>&1; then
-                  echo "   ✅ Updated successfully"
-                  rm "${file}.bak"
+              # Verificar si la imagen actual contiene el nombre que buscamos
+              if [[ "${OLD_REPO}" == *"${IMAGE_NAME}"* ]]; then
+                if [[ "${OLD_REPO}" != "${NEW_REPO}" ]] || [[ "${OLD_TAG}" != "${NEW_TAG}" ]]; then
+                  echo "   ✨ Updating to: ${NEW_REPO}:${NEW_TAG}"
                   
-                  # Incrementar contador
-                  COUNT=$(cat "$TEMP_FILE")
-                  echo $((COUNT + 1)) > "$TEMP_FILE"
+                  # Crear backup
+                  cp "${file}" "${file}.bak"
+                  
+                  # Actualizar repository y tag
+                  yq eval -i ".image.repository = \"${NEW_REPO}\"" "${file}"
+                  yq eval -i ".image.tag = \"${NEW_TAG}\"" "${file}"
+                  
+                  # Validar YAML
+                  if yq eval "${file}" > /dev/null 2>&1; then
+                    echo "   ✅ Updated successfully"
+                    rm "${file}.bak"
+                    
+                    # Incrementar contador
+                    COUNT=$(cat "$TEMP_FILE")
+                    echo $((COUNT + 1)) > "$TEMP_FILE"
+                  else
+                    echo "   ❌ YAML validation failed, rolling back"
+                    mv "${file}.bak" "${file}"
+                  fi
                 else
-                  echo "   ❌ YAML validation failed, rolling back"
-                  mv "${file}.bak" "${file}"
+                  echo "   ⏭️  Already up to date"
                 fi
               else
-                echo "   ⏭️  Already up to date"
+                echo "   ⏭️  Image name doesn't match, skipping"
               fi
             else
               echo "   ⏭️  No image configuration found"
@@ -343,21 +357,30 @@ jobs:
           echo "helm_files_count=${HELM_COUNT}" >> $GITHUB_OUTPUT
           echo "total_files=${TOTAL}" >> $GITHUB_OUTPUT
           
-          # IMPORTANTE: Verificar si Git detecta cambios
+          # Verificar si Git detecta cambios
+          echo ""
+          echo "🔍 Checking for Git changes..."
+          git status --short
+          echo ""
+          
           if git diff --quiet && git diff --cached --quiet; then
             echo "changed=false" >> $GITHUB_OUTPUT
             echo "⚠️  No Git changes detected"
           else
             echo "changed=true" >> $GITHUB_OUTPUT
             echo "✅ Git changes detected"
+            echo ""
+            echo "📝 Changed files:"
+            git diff --name-only
           fi
           
+          echo ""
           echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
           echo "📊 SUMMARY: K8s=${K8S_COUNT}, Helm=${HELM_COUNT}, Total=${TOTAL}"
           echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
 
       # ═══════════════════════════════════════════════════════════
-      # 💾 PASO 8: COMMIT Y PUSH (FIXED)
+      # 💾 PASO 8: COMMIT Y PUSH
       # ═══════════════════════════════════════════════════════════
       - name: 💾 Commit and push changes
         id: commit
@@ -367,15 +390,10 @@ jobs:
           echo "💾 COMMITTING CHANGES"
           echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
           
-          # Verificar cambios antes de commit
-          echo "📝 Git status:"
-          git status --short
-          echo ""
-          
           # Agregar todos los cambios
           git add -A
           
-          echo "📝 Changed files:"
+          echo "📝 Changed files to commit:"
           git diff --cached --name-only
           echo ""
           
@@ -389,7 +407,7 @@ jobs:
             -m "Triggered by: ${{ github.actor }}" \
             -m "Repository: ${{ github.repository }}"
           
-          # Push con retry en caso de fallo
+          # Push con retry
           MAX_RETRIES=3
           RETRY_COUNT=0
           
@@ -435,18 +453,33 @@ jobs:
           echo "   K8s files: ${{ steps.consolidate.outputs.k8s_files_count }}"
           echo "   Helm files: ${{ steps.consolidate.outputs.helm_files_count }}"
           echo ""
-          echo "📂 Directory structure:"
-          ls -la kubernetes/${{ inputs.environment }}/ 2>/dev/null || echo "   Kubernetes directory not found"
-          ls -la helm/override/${{ inputs.environment }}/ 2>/dev/null || echo "   Helm directory not found"
+          echo "📂 Kubernetes directory content:"
+          if [ -d "kubernetes/${{ inputs.environment }}/${{ inputs.project_name }}" ]; then
+            find "kubernetes/${{ inputs.environment }}/${{ inputs.project_name }}" -type f -name "*.yaml" -o -name "*.yml" | while read f; do
+              echo "   📄 $f"
+              echo "      Content:"
+              grep -E "^\s*image:" "$f" || echo "      (no image field found)"
+            done
+          else
+            echo "   ❌ Directory not found"
+          fi
           echo ""
-          echo "🔍 Git status:"
-          git status
+          echo "📂 Helm directory content:"
+          if [ -d "helm/override/${{ inputs.environment }}" ]; then
+            find "helm/override/${{ inputs.environment }}" -type f -name "*values*.yaml" | while read f; do
+              echo "   📄 $f"
+              echo "      Repository:"
+              yq eval '.image.repository' "$f" 2>/dev/null || echo "      (not found)"
+              echo "      Tag:"
+              yq eval '.image.tag' "$f" 2>/dev/null || echo "      (not found)"
+            done
+          else
+            echo "   ❌ Directory not found"
+          fi
           echo ""
-          echo "💡 Possible reasons:"
-          echo "   1. Files already contain the target image/tag"
-          echo "   2. Path structure doesn't match expected format"
-          echo "   3. No YAML files found in target directories"
-          echo "   4. Image pattern doesn't match files content"
+          echo "💡 Target image: ${{ inputs.gcp_region }}-docker.pkg.dev/${{ inputs.gcp_project_id }}/${{ inputs.artifact_registry }}/${{ inputs.docker_image }}:${{ inputs.image_tag }}"
+          echo "💡 Image name to match: ${{ inputs.docker_image }}"
+          echo ""
           echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
 
       # ═══════════════════════════════════════════════════════════
@@ -500,7 +533,4 @@ jobs:
           
           if [ "${{ steps.commit.outputs.commit_sha }}" != "" ] && [ "${{ steps.commit.outputs.commit_sha }}" != "none" ]; then
             echo "✅ Commit: ${{ steps.commit.outputs.commit_sha }}"
-            echo "🔗 https://github.com/dariasmoises979-blip/pipeline-build/commit/${{ steps.commit.outputs.commit_sha }}"
-          fi
-          
-          echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+            echo "🔗 https://github.com/dariasmoises979-blip/pipeline-buil
