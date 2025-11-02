@@ -16,43 +16,40 @@ spec:
         app: pre-info
     spec:
       imagePullSecrets:
-      - name: dockerhub-secret  # Añadido: referencia al secret de DockerHub
+        - name: gcp-artifact-registry  # Aquí debe ir, no dentro del contenedor
       containers:
-      - name: pre-info
-        image: us-central1-docker.pkg.dev/elite-ceremony-476307-s9/artifact_dariasmoises979/mi-aplicacion:pre-e687a19
-        magePullSecrets:
-        - name: gcp-artifact-registry
-        ports:
-        - containerPort: 5000  # Corregido: tu Dockerfile expone 5000, no 80
-          name: http
-          protocol: TCP
-        # REMOVIDO 'command' - deja que el Dockerfile use su propio CMD
-        env:
-        - name: FLASK_ENV
-          value: "production"
-        resources:
-          requests:
-            memory: "128Mi"
-            cpu: "100m"
-          limits:
-            memory: "256Mi"
-            cpu: "200m"
-        livenessProbe:
-          httpGet:
-            path: /
-            port: 5000
-          initialDelaySeconds: 10
-          periodSeconds: 10
-          timeoutSeconds: 3
-          failureThreshold: 3
-        readinessProbe:
-          httpGet:
-            path: /
-            port: 5000
-          initialDelaySeconds: 5
-          periodSeconds: 5
-          timeoutSeconds: 2
-          failureThreshold: 3
+        - name: pre-info
+          image: dariasmoises979/mi-aplicacion:pre
+          ports:
+            - containerPort: 5000
+              name: http
+              protocol: TCP
+          env:
+            - name: FLASK_ENV
+              value: "production"
+          resources:
+            requests:
+              memory: "128Mi"
+              cpu: "100m"
+            limits:
+              memory: "256Mi"
+              cpu: "200m"
+          livenessProbe:
+            httpGet:
+              path: /
+              port: 5000
+            initialDelaySeconds: 10
+            periodSeconds: 10
+            timeoutSeconds: 3
+            failureThreshold: 3
+          readinessProbe:
+            httpGet:
+              path: /
+              port: 5000
+            initialDelaySeconds: 5
+            periodSeconds: 5
+            timeoutSeconds: 2
+            failureThreshold: 3
 ---
 apiVersion: v1
 kind: Service
@@ -63,8 +60,7 @@ spec:
   selector:
     app: pre-info
   ports:
-  - protocol: TCP
-    port: 80          # Puerto externo del servicio
-    targetPort: 5000  # Puerto del contenedor
-  type: NodePort 
-  #LoadBalancer  # O ClusterIP según necesites
+    - protocol: TCP
+      port: 80          # Puerto expuesto del servicio
+      targetPort: 5000  # Puerto interno del contenedor
+  type: NodePort        # O LoadBalancer/ClusterIP según tu entorno
