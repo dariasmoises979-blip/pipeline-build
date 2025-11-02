@@ -1,24 +1,24 @@
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: qa-info-deployment
-  namespace: qa
+  name: pre-info-deployment
+  namespace: pre
   labels:
-    app: qa-info
+    app: pre-info
 spec:
   replicas: 3
   selector:
     matchLabels:
-      app: qa-info
+      app: pre-info
   template:
     metadata:
       labels:
-        app: qa-info
+        app: pre-info
     spec:
       imagePullSecrets:
       - name: dockerhub-secret  # Añadido: referencia al secret de DockerHub
       containers:
-      - name: qa-info
+      - name: pre-info
         image: us-central1-docker.pkg.dev/elite-ceremony-476307-s9/artifact_dariasmoises979/mi-aplicacion:pre-e687a19
         magePullSecrets:
         - name: gcp-artifact-registry
@@ -57,11 +57,11 @@ spec:
 apiVersion: v1
 kind: Service
 metadata:
-  name: qa-info-service
-  namespace: qa
+  name: pre-info-service
+  namespace: pre
 spec:
   selector:
-    app: qa-info
+    app: pre-info
   ports:
   - protocol: TCP
     port: 80          # Puerto externo del servicio

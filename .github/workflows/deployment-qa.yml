@@ -31,7 +31,7 @@ on:
         required: true
         type: string
       environment:
-        description: 'Entorno de deployment (pro/pre/staging/qa/devops)'
+        description: 'Entorno de deployment (qa)'
         required: true
         type: string
       image_tag:

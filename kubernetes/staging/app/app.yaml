@@ -1,24 +1,24 @@
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: qa-info-deployment
-  namespace: qa
+  name: staging-info-deployment
+  namespace: staging
   labels:
-    app: qa-info
+    app: staging-info
 spec:
   replicas: 3
   selector:
     matchLabels:
-      app: qa-info
+      app: staging-info
   template:
     metadata:
       labels:
-        app: qa-info
+        app: staging-info
     spec:
       imagePullSecrets:
       - name: dockerhub-secret  # Añadido: referencia al secret de DockerHub
       containers:
-      - name: qa-info
+      - name: staging-info
         image: dariasmoises979/mi-aplicacion:staging
         magePullSecrets:
         - name: gcp-artifact-registry
@@ -57,11 +57,11 @@ spec:
 apiVersion: v1
 kind: Service
 metadata:
-  name: qa-info-service
-  namespace: qa
+  name: staging-info-service
+  namespace: staging
 spec:
   selector:
-    app: qa-info
+    app: staging-info
   ports:
   - protocol: TCP
     port: 80          # Puerto externo del servicio
