@@ -19,7 +19,7 @@ spec:
       - name: dockerhub-secret  # Añadido: referencia al secret de DockerHub
       containers:
       - name: qa-info
-        image: us-central1-docker.pkg.dev/elite-ceremony-476307-s9/artifact_dariasmoises979/mi-aplicacion:pre-7f28ba3
+        image: us-central1-docker.pkg.dev/elite-ceremony-476307-s9/artifact_dariasmoises979/mi-aplicacion:pre-e687a19
         magePullSecrets:
         - name: gcp-artifact-registry
         ports:
