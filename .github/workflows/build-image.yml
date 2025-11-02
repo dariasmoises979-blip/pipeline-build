@@ -172,8 +172,6 @@ jobs:
           TAGS=()
           TAGS+=("${PRIMARY_TAG}")           # dev-abc1234 (PRINCIPAL)
           TAGS+=("${ENVIRONMENT}")           # dev
-          TAGS+=("${COMMIT_SHA}")            # SHA completo
-          TAGS+=("${SHORT_SHA}")             # abc1234
           
           if [[ "${BRANCH_NAME}" == "main" || "${BRANCH_NAME}" == "master" ]]; then
             TAGS+=("latest")
