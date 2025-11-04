@@ -1,0 +1,22 @@
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: pro-info 
+  namespace: argocd
+spec:
+  project: default
+  source:
+    repoURL: 'https://github.com/dariasmoises979-blip/pipeline-build.git' # Cambia por tu repo
+    targetRevision: HEAD
+    path: kubernetes/pro/app
+  destination:
+    server: 'https://kubernetes.default.svc'
+    namespace: pro
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+    - CreateNamespace=true
+    - ApplyOutOfSyncOnly=true
+    
