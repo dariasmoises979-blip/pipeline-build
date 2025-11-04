@@ -33,7 +33,6 @@ server:
   # Ingress habilitado para staging
   ingress:
     enabled: true
-    ingressClassName: "nginx"
     hosts:
       - host: n8n-staging.midominio.com
         paths:
