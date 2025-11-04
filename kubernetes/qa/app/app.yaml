@@ -19,7 +19,7 @@ spec:
         - name: gcp-artifact-registry  # Aquí debe ir, no dentro del contenedor
       containers:
         - name: qa-info
-          image: dariasmoises979/mi-aplicacion:qaus-central1-docker.pkg.dev/elite-ceremony-476307-s9/dariasmoises979/mi-aplicacion:qa-2565d8f
+          image: us-central1-docker.pkg.dev/elite-ceremony-476307-s9/dariasmoises979/mi-aplicacion:qa-2565d8f
           ports:
             - containerPort: 5000
               name: http
