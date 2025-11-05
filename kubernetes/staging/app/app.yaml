@@ -19,7 +19,7 @@ spec:
         - name: gcp-artifact-registry  # Aquí debe ir, no dentro del contenedor
       containers:
         - name: staging-info
-          image: us-central1-docker.pkg.dev/elite-ceremony-476307-s9/dariasmoises979/mi-aplicacion:staging-88e82f4
+          image: us-central1-docker.pkg.dev/elite-ceremony-476307-s9/dariasmoises979/mi-aplicacion:staging-c018ace
           ports:
             - containerPort: 5000
               name: http
