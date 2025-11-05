@@ -24,7 +24,7 @@ global:
     tag: 1.67.0
 image:
   repository: us-central1-docker.pkg.dev/elite-ceremony-476307-s9/dariasmoises979/mi-aplicacion
-  tag: staging-6e2dcd6
+  tag: staging-7265de7
   pullPolicy: IfNotPresent
 server:
   service:
