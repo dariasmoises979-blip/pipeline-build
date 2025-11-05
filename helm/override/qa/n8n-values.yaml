@@ -20,26 +20,27 @@
 
 global:
   image:
-    repository: n8nio/n8n   # 🧩 Repositorio de la imagen
-    tag: 1.67.0             # 🧩 Versión de n8n
-
+    repository: n8nio/n8n # 🧩 Repositorio de la imagen
+    tag: 1.67.0 # 🧩 Versión de n8n
+image:
+  repository: us-central1-docker.pkg.dev/elite-ceremony-476307-s9/dariasmoises979/mi-aplicacion
+  tag: qa-7265de7
+  pullPolicy: IfNotPresent
 server:
   # ======================================================
   # ⚙️ Configuración del servicio n8n
   # ======================================================
   service:
-    type: ClusterIP           # ClusterIP para desarrollo
+    type: ClusterIP # ClusterIP para desarrollo
     port: 5678
-
-  # ======================================================
-  # 🌐 Ingress público (opcional)
-  # ======================================================
-  # ingress:
-  #   enabled: false
-  #   ingressClassName: ""
-  #   hosts: []
-  #   tls: []
-
+    # ======================================================
+    # 🌐 Ingress público (opcional)
+    # ======================================================
+    # ingress:
+    #   enabled: false
+    #   ingressClassName: ""
+    #   hosts: []
+    #   tls: []
 configs:
   params:
     # ======================================================
@@ -50,7 +51,6 @@ configs:
     EXECUTIONS_DATA_SAVE_ON_ERROR: "all"
     DB_TYPE: "sqlite"
     DB_SQLITE_VACUUM_ON_STARTUP: "true"
-
 resources:
   requests:
     cpu: "200m"
