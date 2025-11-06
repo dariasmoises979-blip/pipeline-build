@@ -394,6 +394,7 @@ resource "google_compute_instance" "app_server" {
 }
 ```
 
+
 ### 2. Kubernetes
 ```yaml
 # Usar labels consistentes
