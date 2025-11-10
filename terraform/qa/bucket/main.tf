@@ -3,8 +3,8 @@
 #----------------------------------
 
 module "gcp_bucket_qa" {
-  source        = "../modules/gcp/bucket" # Path to the GCP bucket module
-  bucket_name   = var.qa_bucket_name       # Name of the bucket for QA environment
+  source        = "../../modules/gcp/bucket" # Path to the GCP bucket module
+  bucket_name   = var.bucket_name       # Name of the bucket for QA environment
   location      = var.qa_bucket_location   # Location/region of the bucket for QA environment
   force_destroy = var.qa_force_destroy     # Whether to force destroy the bucket for QA environment
   project_id    = var.gcp_project_id       # GCP Project ID

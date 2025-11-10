@@ -46,3 +46,40 @@ charts/*/charts/
 .idea/
 .vscode/
 *.swp
+
+
+
+# === Terraform ===
+# Archivos de estado (no deben versionarse nunca)
+*.tfstate
+*.tfstate.*
+terraform.tfstate
+terraform.tfstate.backup
+
+# Archivos del plan de ejecución
+*.tfplan
+
+# Archivos de configuración de variables sensibles
+*.tfvars
+*.tfvars.json
+
+# Directorio oculto de Terraform
+
+
+
+# Archivos de salida o logs
+crash.log
+crash.*.log
+
+# Archivos de sistema / editor
+*.log
+*.swp
+*.bak
+.DS_Store
+Thumbs.db
+
+# Archivos de credenciales o claves
+*.pem
+*.key
+*.crt
+*.pfx

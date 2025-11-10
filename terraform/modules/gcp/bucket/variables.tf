@@ -33,3 +33,23 @@ variable "user_email" {
 }
 
 
+variable "enable_versioning" {
+  description = "Enable versioning for the bucket"
+  type        = bool
+  default     = false
+}
+
+variable "grant_write_access" {
+  description = "Grant write access to the user"
+  type        = bool
+  default     = false
+}
+
+variable "lifecycle_rules" {
+  description = "Lifecycle rules for the bucket"
+  type = list(object({
+    action = string
+    age    = number
+  }))
+  default = []
+}
