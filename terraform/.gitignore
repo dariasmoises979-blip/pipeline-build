@@ -9,7 +9,7 @@ terraform/argocd/.terraform/plugin-cache/
 *.tfstate.backup
 .terraform.lock.hcl
 *.tfplan
-
+tfplan
 # Terraform plugin caches
 .terraform/providers/
 .terraform/plugin-cache/
