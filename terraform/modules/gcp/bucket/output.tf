@@ -26,3 +26,9 @@ output "self_link" {
   description = "The self link of the bucket"
   value       = google_storage_bucket.bucket-gcp.self_link
 }
+
+
+output "bucket_self_link" {
+  description = "The URI of the bucket"
+  value       = google_storage_bucket.bucket-gcp.self_link
+}

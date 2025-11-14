@@ -34,13 +34,20 @@ variable "gcp_credentials_file" {
   type        = string
 }
 
+variable "qa_enable_versioning" {
+  description = "Enable versioning for the QA bucket"
+  type        = bool
+  default     = true
+}
+
 locals {
     gcp_project_id    = var.gcp_project_id  # Use the variable value
     gcp_region        = "us-central1"       # Replace with your desired GCP region
-    gcp_credentials_file  = ""
+    gcp_credentials_file  = file("/home/moises/github/elite-ceremony-476307-s9-964b6ccac157.json")
     gcp_tags    = {
         Environment = "QA"
         Team        = "DevOps"
         Project     = "MyProject"
     }
 }
+
