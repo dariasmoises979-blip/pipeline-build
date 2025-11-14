@@ -7,7 +7,7 @@ module "gcp_bucket_qa" {
   bucket_name   = var.bucket_name       # Name of the bucket for QA environment
   location      = var.qa_bucket_location   # Location/region of the bucket for QA environment
   force_destroy = var.qa_force_destroy     # Whether to force destroy the bucket for QA environment
-  project_id    = var.gcp_project_id       # GCP Project ID
+  project_id    = "elite-ceremony-476307-s9"      # GCP Project ID
   user_email    = var.qa_bucket_user_email # User email to be granted access to the bucket
 }
 

@@ -53,3 +53,10 @@ variable "lifecycle_rules" {
   }))
   default = []
 }
+
+variable "labels" {
+  description = "Labels to apply to the bucket"
+  type        = map(string)
+  default     = {}
+}
+
