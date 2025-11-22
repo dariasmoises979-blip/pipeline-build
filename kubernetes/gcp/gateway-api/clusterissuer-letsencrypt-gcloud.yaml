@@ -1,0 +1,18 @@
+apiVersion: cert-manager.io/v1
+kind: ClusterIssuer
+metadata:
+  name: letsencrypt-dns-google
+spec:
+  acme:
+    server: https://acme-v02.api.letsencrypt.org/directory
+    email: ops@demo.example.com
+    privateKeySecretRef:
+      name: letsencrypt-account-key
+    solvers:
+    - dns01:
+        cloudDNS:
+          project: my-gcp-project
+          # credentails stored in secret clouddns-gsa-key in cert-manager namespace
+          serviceAccountSecretRef:
+            name: clouddns-gsa-key
+            key: key.json

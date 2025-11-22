@@ -1,0 +1,35 @@
+apiVersion: networking.istio.io/v1beta1
+kind: VirtualService
+metadata:
+  name: users-vs
+  namespace: production
+spec:
+  hosts:
+  - "demo.example.com"
+  gateways:
+  - istio-prod-gateway
+  http:
+  - match:
+    - uri:
+        exact: /users
+    route:
+    - destination:
+        host: users.production.svc.cluster.local
+        port:
+          number: 80
+  - match:
+    - uri:
+        exact: /users8
+    route:
+    - destination:
+        host: users.production.svc.cluster.local
+        port:
+          number: 80
+  - match:
+    - uri:
+        exact: /statuscode/500users
+    route:
+    - destination:
+        host: users.production.svc.cluster.local
+        port:
+          number: 80

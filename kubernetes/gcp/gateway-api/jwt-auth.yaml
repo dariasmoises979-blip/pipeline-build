@@ -1,0 +1,27 @@
+apiVersion: security.istio.io/v1beta1
+kind: RequestAuthentication
+metadata:
+  name: jwt-prod
+  namespace: production
+spec:
+  selector:
+    matchLabels:
+      app: users
+  jwtRules:
+  - issuer: "https://auth.example.com/"
+    jwksUri: "https://auth.example.com/.well-known/jwks.json"
+---
+apiVersion: security.istio.io/v1beta1
+kind: AuthorizationPolicy
+metadata:
+  name: require-jwt
+  namespace: production
+spec:
+  selector:
+    matchLabels:
+      app: users
+  action: ALLOW
+  rules:
+  - from:
+    - source:
+        requestPrincipals: ["*"]
