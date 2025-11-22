@@ -9,13 +9,52 @@ spec:
     - name: https
       port: 443
       protocol: HTTPS
+      hostname: "demo.example.com"
       tls:
         mode: Terminate
         certificateRefs:
           - kind: Secret
-            name: demo-tls-secret
+            name: demo-tls-secret  # Usando el que ya tienes configurado
       allowedRoutes:
         namespaces:
-          from: Same
+          from: All  # Permite HTTPRoutes de cualquier namespace
 
 ---
+# ReferenceGrant: Permite que HTTPRoute en 'infra' acceda a Services en 'istio-system'
+apiVersion: gateway.networking.k8s.io/v1beta1
+kind: ReferenceGrant
+metadata:
+  name: infra-to-istio-system
+  namespace: istio-system
+spec:
+  from:
+  - group: gateway.networking.k8s.io
+    kind: HTTPRoute
+    namespace: infra
+  to:
+  - group: ""
+    kind: Service
+
+---
+# HTTPRoute que conecta el Gateway GKE con Istio
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: edge-to-istio
+  namespace: infra
+spec:
+  parentRefs:
+  - name: edge-gateway
+    namespace: infra
+  hostnames:
+  - "demo.example.com"
+  rules:
+  - matches:
+    - path:
+        type: PathPrefix
+        value: /
+    backendRefs:
+    - name: istio-ingressgateway
+      namespace: istio-system
+      port: 80
+      kind: Service

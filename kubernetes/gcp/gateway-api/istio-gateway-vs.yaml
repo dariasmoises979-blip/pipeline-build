@@ -2,20 +2,18 @@ apiVersion: networking.istio.io/v1beta1
 kind: Gateway
 metadata:
   name: istio-prod-gateway
-  namespace: production
+  namespace: istio-system  # Cambiado: debe estar donde está el ingressgateway
 spec:
   selector:
-    istio: ingressgateway  # apunta al pod istio-ingressgateway
+    istio: ingressgateway  # Selecciona el pod istio-ingressgateway
   servers:
   - port:
-      number: 443
-      name: https
-      protocol: HTTPS
-    tls:
-      mode: SIMPLE
-      credentialName: demo-tls-secret  # usa el mismo certificado
+      number: 80
+      name: http
+      protocol: HTTP
     hosts:
     - "demo.example.com"
+    - "*"  # Opcional: acepta cualquier host
 
 ---
 apiVersion: networking.istio.io/v1beta1
@@ -26,8 +24,9 @@ metadata:
 spec:
   hosts:
   - "demo.example.com"
+  - "*"  # Opcional para testing
   gateways:
-  - istio-prod-gateway
+  - istio-system/istio-prod-gateway  # Cambiado: namespace/nombre
   http:
   - match:
     - uri:
