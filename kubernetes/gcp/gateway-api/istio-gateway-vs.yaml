@@ -1,0 +1,39 @@
+apiVersion: networking.istio.io/v1beta1
+kind: Gateway
+metadata:
+  name: istio-prod-gateway
+  namespace: production
+spec:
+  selector:
+    istio: ingressgateway  # apunta al pod istio-ingressgateway
+  servers:
+  - port:
+      number: 443
+      name: https
+      protocol: HTTPS
+    tls:
+      mode: SIMPLE
+      credentialName: demo-tls-secret  # usa el mismo certificado
+    hosts:
+    - "demo.example.com"
+
+---
+apiVersion: networking.istio.io/v1beta1
+kind: VirtualService
+metadata:
+  name: users-vs
+  namespace: production
+spec:
+  hosts:
+  - "demo.example.com"
+  gateways:
+  - istio-prod-gateway
+  http:
+  - match:
+    - uri:
+        prefix: /users
+    route:
+    - destination:
+        host: users.production.svc.cluster.local
+        port:
+          number: 80

@@ -1,0 +1,13 @@
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: demo-tls
+  namespace: infra
+spec:
+  secretName: demo-tls-secret
+  dnsNames:
+    - demo.example.com
+
+  issuerRef:
+    name: letsencrypt-dns-google
+    kind: ClusterIssuer

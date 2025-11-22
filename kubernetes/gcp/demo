@@ -1,0 +1,36 @@
+export PROJECT="elite-ceremony-476307-s9"
+export ZONE="us-central1-a"
+export CLUSTER="my-gks"
+export REGION="us-central1"
+export DOMAIN="demo.example.com"
+export DNS_ZONE="demo-zone"
+
+# Habilitar GKE Gateway API feature (actívalo si tu versión lo requiere)
+gcloud container clusters update $CLUSTER \
+  --project=$PROJECT \
+  --zone=$ZONE \
+  --update-addons=GcePersistentDiskCsiDriver=ENABLED \
+  --gateway-api=standard
+
+  Crear Service Account para cert-manager (permite modificar Cloud DNS)
+
+Crea una service account y dale permisos dns.admin sobre la project/zone, descarga la key JSON y guárdala como secreto en cluster.
+
+gcloud iam service-accounts create certmgr-sa --project=$PROJECT
+gcloud projects add-iam-policy-binding $PROJECT --member="serviceAccount:certmgr-sa@$PROJECT.iam.gserviceaccount.com" --role="roles/dns.admin"
+gcloud iam service-accounts keys create key.json --project=$PROJECT --iam-account=certmgr-sa@$PROJECT.iam.gserviceaccount.com
+kubectl create secret generic clouddns-gsa-key --from-file=key.json -n cert-manager
+
+Instalar cert-manager (Helm o manifests)
+kubectl apply --validate=false -f https://github.com/cert-manager/cert-manager/releases/latest/download/cert-manager.yaml
+kubectl -n cert-manager wait --for=condition=available deployment -l app.kubernetes.io/name=cert-manager --timeout=120s
+
+Instalar Istio (perfil production) en GKE
+
+Usa istioctl para instalar Istio con perfil de producción y habilitar SDS/CNI si lo necesitas. Ejemplo mínimo:
+
+curl -L https://istio.io/downloadIstio | ISTIO_VERSION=1.22.0 sh -
+export PATH="$PWD/istio-1.22.0/bin:$PATH"
+
+istioctl install --set profile=default -y
+# (En GKE producci

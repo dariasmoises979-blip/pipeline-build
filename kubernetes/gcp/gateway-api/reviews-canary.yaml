@@ -1,0 +1,38 @@
+apiVersion: networking.istio.io/v1beta1
+kind: DestinationRule
+metadata:
+  name: users-destination
+  namespace: production
+spec:
+  host: users.production.svc.cluster.local
+  subsets:
+  - name: v1
+    labels:
+      version: v1
+  - name: v2
+    labels:
+      version: v2
+---
+apiVersion: networking.istio.io/v1beta1
+kind: VirtualService
+metadata:
+  name: users-canary
+  namespace: production
+spec:
+  hosts:
+  - "demo.example.com"
+  gateways:
+  - istio-prod-gateway
+  http:
+  - match:
+    - uri:
+        prefix: /users
+    route:
+    - destination:
+        host: users.production.svc.cluster.local
+        subset: v1
+      weight: 90
+    - destination:
+        host: users.production.svc.cluster.local
+        subset: v2
+      weight: 10
