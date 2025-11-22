@@ -11,23 +11,7 @@ spec:
   http:
   - match:
     - uri:
-        exact: /users
-    route:
-    - destination:
-        host: users.production.svc.cluster.local
-        port:
-          number: 80
-  - match:
-    - uri:
-        exact: /users8
-    route:
-    - destination:
-        host: users.production.svc.cluster.local
-        port:
-          number: 80
-  - match:
-    - uri:
-        exact: /statuscode/500users
+        prefix: /users
     route:
     - destination:
         host: users.production.svc.cluster.local
