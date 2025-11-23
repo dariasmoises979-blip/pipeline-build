@@ -21,3 +21,5 @@ spec:
       namespace: istio-system
       port: 80
       kind: Service
+      
+      34.117.13.147

@@ -1,3 +1,4 @@
+# virtualservice-users.yaml - MEJORADO
 apiVersion: networking.istio.io/v1beta1
 kind: VirtualService
 metadata:
@@ -12,6 +13,10 @@ spec:
   - match:
     - uri:
         prefix: /users
+    headers:
+      request:
+        add:
+          x-forwarded-proto: https  # ← AGREGAR para apps que verifican HTTPS
     route:
     - destination:
         host: users.production.svc.cluster.local

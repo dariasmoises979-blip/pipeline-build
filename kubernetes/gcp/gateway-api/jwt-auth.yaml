@@ -24,4 +24,8 @@ spec:
   rules:
   - from:
     - source:
-        requestPrincipals: ["*"]
+        requestPrincipals: ["https://auth.example.com/*"]  # ← Específico al issuer
+    to:
+    - operation:
+        methods: ["GET", "POST"]  # ← Limitar métodos HTTP
+        paths: ["/users/*"]  # ← Rutas específicas

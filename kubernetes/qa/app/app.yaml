@@ -6,7 +6,7 @@ metadata:
   labels:
     app: qa-info
 spec:
-  replicas: 3
+  replicas: 1
   selector:
     matchLabels:
       app: qa-info

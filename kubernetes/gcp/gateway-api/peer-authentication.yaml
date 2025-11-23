@@ -5,4 +5,14 @@ metadata:
   namespace: istio-system
 spec:
   mtls:
+    mode: PERMISSIVE  # Permite HTTP y mTLS durante transición
+
+---
+apiVersion: security.istio.io/v1beta1
+kind: PeerAuthentication
+metadata:
+  name: production-mtls
+  namespace: production
+spec:
+  mtls:
     mode: STRICT
