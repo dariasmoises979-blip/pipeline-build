@@ -7,7 +7,7 @@ spec:
   hosts:
   - "demo.example.com"
   gateways:
-  - istio-prod-gateway
+  - istio-system/istio-prod-gateway
   http:
   - match:
     - uri:

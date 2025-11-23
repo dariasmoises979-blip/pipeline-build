@@ -1,12 +1,14 @@
 apiVersion: cert-manager.io/v1
 kind: Certificate
 metadata:
-  name: demo-tls-staging
+  name: demo-tls-production
   namespace: infra
 spec:
-  secretName: demo-tls-staging-secret
+  secretName: demo-tls-secret
   dnsNames:
     - demo.example.com
   issuerRef:
-    name: letsencrypt-staging
+    name: letsencrypt-dns-google  # Issuer de PRODUCCIÓN
     kind: ClusterIssuer
+
+# Nota: Este certificado será válido y confiable en todos los navegadores

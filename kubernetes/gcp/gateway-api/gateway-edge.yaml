@@ -14,10 +14,10 @@ spec:
         mode: Terminate
         certificateRefs:
           - kind: Secret
-            name: demo-tls-secret  # Usando el que ya tienes configurado
+            name: demo-tls-secret  # CAMBIADO: usar certificado de producción
       allowedRoutes:
         namespaces:
-          from: All  # Permite HTTPRoutes de cualquier namespace
+          from: All
 
 ---
 # ReferenceGrant: Permite que HTTPRoute en 'infra' acceda a Services en 'istio-system'
