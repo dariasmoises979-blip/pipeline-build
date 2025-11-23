@@ -22,4 +22,3 @@ spec:
       port: 80
       kind: Service
       
-      34.117.13.147
