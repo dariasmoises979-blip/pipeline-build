@@ -65,7 +65,7 @@ terraform.tfstate.backup
 
 # Directorio oculto de Terraform
 
-
+gcp-dns-key.json
 
 # Archivos de salida o logs
 crash.log
