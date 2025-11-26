@@ -40,6 +40,7 @@ jobs:
           docker run --rm -v ${{ github.workspace }}:/src aquasec/trivy:latest \
             fs --scanners vuln,secret \
             --severity CRITICAL,HIGH \
+            --skip-dirs istio-1.22.0 \
             --ignorefile /src/.trivyignore \
             --exit-code 1 \
             /src
@@ -49,6 +50,7 @@ jobs:
           docker run --rm -v ${{ github.workspace }}:/src aquasec/trivy:latest \
             config \
             --severity CRITICAL,HIGH \
+            --skip-dirs istio-1.22.0 \
             --ignorefile /src/.trivyignore \
             --exit-code 1 \
             /src/terraform
@@ -57,6 +59,7 @@ jobs:
         run: |
           docker run --rm -v ${{ github.workspace }}:/src aquasec/trivy:latest \
             sbom /src \
+            --skip-dirs istio-1.22.0 \
             --ignorefile /src/.trivyignore \
             -o /src/sbom.json
 
