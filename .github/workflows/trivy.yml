@@ -39,7 +39,7 @@ jobs:
         run: |
           docker run --rm -v ${{ github.workspace }}:/src aquasec/trivy:latest \
             fs --scanners vuln,secret \
-            --severity CRITICAL,HIGH \
+            #--severity CRITICAL,HIGH \
             --ignorefile /src/.trivyignore \
             --exit-code 1 \
             /src
