@@ -34,3 +34,39 @@ jobs:
         with:
           name: trivy-report
           path: trivy-report.json
+
+      - name: Trivy FS Scan (vulns + secrets)
+        run: |
+          docker run --rm -v ${{ github.workspace }}:/src aquasec/trivy:latest \
+            fs --scanners vuln,secret \
+            --severity CRITICAL,HIGH \
+            --exit-code 1 \
+            /src
+
+      - name: Trivy Kubernetes Config Scan
+        run: |
+          docker run --rm -v ${{ github.workspace }}/k8s:/infra aquasec/trivy:latest \
+            config \
+            --severity CRITICAL,HIGH \
+            --exit-code 1 \
+            /infra
+
+      - name: Trivy Terraform Scan
+        run: |
+          docker run --rm -v ${{ github.workspace }}/terraform:/iac aquasec/trivy:latest \
+            config \
+            --severity CRITICAL,HIGH \
+            --exit-code 1 \
+            /iac
+
+      - name: Generate SBOM
+        run: |
+          docker run --rm -v ${{ github.workspace }}:/src aquasec/trivy:latest \
+            sbom /src \
+            -o sbom.json
+
+      - name: Upload SBOM
+        uses: actions/upload-artifact@v4
+        with:
+          name: sbom
+          path: sbom.json
