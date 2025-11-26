@@ -40,6 +40,7 @@ jobs:
           docker run --rm -v ${{ github.workspace }}:/src aquasec/trivy:latest \
             fs --scanners vuln,secret \
             --severity CRITICAL,HIGH \
+            --ignorefile .trivyignore \
             --exit-code 1 \
             /src
 
@@ -48,6 +49,7 @@ jobs:
           docker run --rm -v ${{ github.workspace }}/k8s:/infra aquasec/trivy:latest \
             config \
             --severity CRITICAL,HIGH \
+            --ignorefile .trivyignore \
             --exit-code 1 \
             /infra
 
@@ -56,6 +58,7 @@ jobs:
           docker run --rm -v ${{ github.workspace }}/terraform:/iac aquasec/trivy:latest \
             config \
             --severity CRITICAL,HIGH \
+            --ignorefile .trivyignore \
             --exit-code 1 \
             /iac
 
@@ -63,6 +66,7 @@ jobs:
         run: |
           docker run --rm -v ${{ github.workspace }}:/src aquasec/trivy:latest \
             sbom /src \
+            --ignorefile .trivyignore \
             -o sbom.json
 
       - name: Upload SBOM
