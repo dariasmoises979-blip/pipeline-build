@@ -2,8 +2,9 @@ FROM alpine:3.18
 
 RUN adduser -D appuser
 USER appuser
-RUN chown -R appuser:appuser /app && \
-    chmod -R 777 /app
+RUN mkdir /test && \
+    chown -R appuser:appuser /test && \
+    chmod -R 777 /test
 WORKDIR /app
 COPY . .
 
