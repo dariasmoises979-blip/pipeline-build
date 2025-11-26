@@ -40,34 +40,34 @@ jobs:
           docker run --rm -v ${{ github.workspace }}:/src aquasec/trivy:latest \
             fs --scanners vuln,secret \
             --severity CRITICAL,HIGH \
-            --ignorefile .trivyignore \
+            --ignorefile /src/.trivyignore \
             --exit-code 1 \
             /src
 
       - name: Trivy Kubernetes Config Scan
         run: |
-          docker run --rm -v ${{ github.workspace }}/k8s:/infra aquasec/trivy:latest \
+          docker run --rm -v ${{ github.workspace }}:/src aquasec/trivy:latest \
             config \
             --severity CRITICAL,HIGH \
-            --ignorefile .trivyignore \
+            --ignorefile /src/.trivyignore \
             --exit-code 1 \
-            /infra
+            /src/k8s
 
       - name: Trivy Terraform Scan
         run: |
-          docker run --rm -v ${{ github.workspace }}/terraform:/iac aquasec/trivy:latest \
+          docker run --rm -v ${{ github.workspace }}:/src aquasec/trivy:latest \
             config \
             --severity CRITICAL,HIGH \
-            --ignorefile .trivyignore \
+            --ignorefile /src/.trivyignore \
             --exit-code 1 \
-            /iac
+            /src/terraform
 
       - name: Generate SBOM
         run: |
           docker run --rm -v ${{ github.workspace }}:/src aquasec/trivy:latest \
             sbom /src \
-            --ignorefile .trivyignore \
-            -o sbom.json
+            --ignorefile /src/.trivyignore \
+            -o /src/sbom.json
 
       - name: Upload SBOM
         uses: actions/upload-artifact@v4
