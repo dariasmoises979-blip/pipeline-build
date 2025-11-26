@@ -1,3 +1,6 @@
-kubernetes/**
+# Ignore Istio samples and configs
+**/istio-*/
+**/istio-*/**
+
+# Ignore Terraform
 terraform/*
-helm/*
