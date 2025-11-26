@@ -1,6 +1,4 @@
 # Ignore Istio samples and configs
 **/istio-*/
 **/istio-*/**
-
-# Ignore Terraform
-terraform/*
+ kubernetes/gcp/gateway-api/istio-1.22.0/**
