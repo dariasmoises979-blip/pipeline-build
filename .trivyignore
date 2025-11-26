@@ -1,4 +1,6 @@
-# Ignore Istio samples and configs
-**/istio-*/
+# Ignore all Istio directories (any version)
+# Pattern matches: istio-1.22.0, istio-1.23.0, etc.
 **/istio-*/**
-kubernetes/gcp/gateway-api/istio-1.22.0/**
+
+# Ignore specific Istio sample files with secrets
+**/jwt-server.yaml
