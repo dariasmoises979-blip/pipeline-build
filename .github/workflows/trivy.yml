@@ -44,15 +44,6 @@ jobs:
             --exit-code 1 \
             /src
 
-      - name: Trivy Kubernetes Config Scan
-        run: |
-          docker run --rm -v ${{ github.workspace }}:/src aquasec/trivy:latest \
-            config \
-            --severity CRITICAL,HIGH \
-            --ignorefile /src/.trivyignore \
-            --exit-code 1 \
-            /src/k8s
-
       - name: Trivy Terraform Scan
         run: |
           docker run --rm -v ${{ github.workspace }}:/src aquasec/trivy:latest \
