@@ -1,4 +1,4 @@
 # Ignore Istio samples and configs
 **/istio-*/
 **/istio-*/**
- kubernetes/gcp/gateway-api/istio-1.22.0/**
+kubernetes/gcp/gateway-api/istio-1.22.0/**
