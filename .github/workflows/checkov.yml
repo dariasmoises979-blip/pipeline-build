@@ -1,0 +1,30 @@
+name: DevSecOps Pipeline - Checkov
+
+on:
+    # El pipeline se ejecutará automáticamente en cada 'push' a la rama 'checkov'
+    push:
+        branches: ["checkov"]
+
+jobs:
+    checkov-scan:
+        # Se ejecuta en el último sistema operativo Ubuntu disponible
+        runs-on: ubuntu-latest
+
+        steps:
+            # Paso 1: Descargar el código del repositorio
+            - name: Checkout Repository Code
+              uses: actions/checkout@v4
+
+            # Paso 2: Ejecutar el escaneo de seguridad con Checkov
+            - name: Run Checkov Scan
+              # Usamos la acción oficial de Checkov
+              uses: bridgecrewio/checkov-action@master
+              with:
+                  # Directorio donde se encuentran tus archivos de infraestructura (ej. Terraform)
+                  directory: infra/terraform
+                  # Especifica que el escaneo debe usar las reglas para Terraform
+                  framework: terraform
+                  # Formatos de salida para el reporte (SARIF es bueno para integración con GitHub Security tab)
+                  output: "sarif,junit"
+                  # Permite que el escaneo falle y detenga el pipeline si encuentra fallos (Recomendado para DevSecOps)
+                  # soft_fail: true  # Descomenta esta línea si prefieres que NO falle y solo reporte los resultados.

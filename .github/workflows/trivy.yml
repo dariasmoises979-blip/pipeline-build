@@ -12,7 +12,7 @@ jobs:
       - uses: actions/checkout@v4
 
       - name: Build Docker image
-        run: docker build -t insecure-app:${{ github.sha }} .
+        run: docker build -t insecure-app:${{ github.sha }} docker/docker-1
 
       - name: Run Trivy (CRITICAL/HIGH blocker)
         run: |
@@ -34,3 +34,37 @@ jobs:
         with:
           name: trivy-report
           path: trivy-report.json
+
+      - name: Trivy FS Scan (vulns + secrets)
+        run: |
+          docker run --rm -v ${{ github.workspace }}:/src aquasec/trivy:latest \
+            fs --scanners vuln,secret \
+            --severity CRITICAL,HIGH \
+            --skip-dirs istio-1.22.0 \
+            --ignorefile /src/.trivyignore \
+            --exit-code 1 \
+            /src
+
+      - name: Trivy Terraform Scan
+        run: |
+          docker run --rm -v ${{ github.workspace }}:/src aquasec/trivy:latest \
+            config \
+            --severity CRITICAL,HIGH \
+            --skip-dirs istio-1.22.0 \
+            --ignorefile /src/.trivyignore \
+            --exit-code 1 \
+            /src/terraform
+
+      - name: Generate SBOM
+        run: |
+          docker run --rm -v ${{ github.workspace }}:/src aquasec/trivy:latest \
+            sbom /src \
+            --skip-dirs istio-1.22.0 \
+            --ignorefile /src/.trivyignore \
+            -o /src/sbom.json
+
+      - name: Upload SBOM
+        uses: actions/upload-artifact@v4
+        with:
+          name: sbom
+          path: sbom.json
