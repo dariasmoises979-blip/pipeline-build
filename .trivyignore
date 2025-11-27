@@ -4,3 +4,4 @@
 
 # Ignore specific Istio sample files with secrets
 **/jwt-server.yaml
+
