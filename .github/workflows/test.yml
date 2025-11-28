@@ -17,11 +17,11 @@ on:
       external_repo_path:
         required: false
         type: string
-        default: './app-repo'
+        default: "./app-repo"
       python_version:
         required: false
         type: string
-        default: '3.12'
+        default: "3.12"
       coverage_threshold:
         required: false
         type: number
@@ -29,11 +29,11 @@ on:
       sonar_args:
         required: false
         type: string
-        default: ''
+        default: ""
       projectBaseDir:
         required: false
         type: string
-        default: ''
+        default: ""
       run_integration_tests:
         required: false
         type: boolean
@@ -43,7 +43,7 @@ on:
         type: boolean
         default: true
     secrets:
-      EXTERNAL_REPO_TOKEN: 
+      EXTERNAL_REPO_TOKEN:
         required: true
       SONAR_TOKEN:
         required: false
@@ -56,9 +56,9 @@ permissions:
   pull-requests: write
 
 env:
-  PYTHONUNBUFFERED: '1'
-  PIP_DISABLE_PIP_VERSION_CHECK: '1'
-  PIP_NO_CACHE_DIR: '0'
+  PYTHONUNBUFFERED: "1"
+  PIP_DISABLE_PIP_VERSION_CHECK: "1"
+  PIP_NO_CACHE_DIR: "0"
 
 jobs:
   # ═══════════════════════════════════════════════════════════
@@ -73,7 +73,7 @@ jobs:
       python-version: ${{ steps.python-info.outputs.version }}
       has-requirements: ${{ steps.check-files.outputs.has-requirements }}
       has-tests: ${{ steps.check-files.outputs.has-tests }}
-    
+
     steps:
       - name: 🔄 Clonar el repositorio app
         uses: actions/checkout@v4
@@ -89,7 +89,7 @@ jobs:
         working-directory: ${{ inputs.external_repo_path }}
         run: |
           echo "🔍 Verificando estructura del proyecto..."
-          
+
           if [ -f "local/requirements.txt" ]; then
             echo "✅ Encontrado: local/requirements.txt"
             echo "has-requirements=true" >> $GITHUB_OUTPUT
@@ -97,7 +97,7 @@ jobs:
             echo "⚠️ No encontrado: local/requirements.txt"
             echo "has-requirements=false" >> $GITHUB_OUTPUT
           fi
-          
+
           if [ -d "system_info_app" ] || [ -d "system_info_app/test" ]; then
             echo "✅ Encontrado: directorio de system_info_app"
             echo "has-tests=true" >> $GITHUB_OUTPUT
@@ -105,7 +105,7 @@ jobs:
             echo "⚠️ No encontrado: directorio de system_info_app"
             echo "has-tests=false" >> $GITHUB_OUTPUT
           fi
-          
+
           echo "📂 Estructura del proyecto:"
           ls -la || true
 
@@ -140,11 +140,11 @@ jobs:
         working-directory: ${{ inputs.external_repo_path }}
         run: |
           python -m pip install --upgrade pip setuptools wheel
-          
+
           if [ -f "local/requirements.txt" ]; then
             pip install -r local/requirements.txt
           fi
-          
+
           pip install \
             pytest pytest-cov pytest-html pytest-xdist \
             flake8 black pylint isort \
@@ -172,7 +172,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 15
     needs: setup
-    
+
     steps:
       - name: 💾 Descargar artefacto
         uses: actions/download-artifact@v4
@@ -197,21 +197,21 @@ jobs:
         working-directory: ${{ inputs.external_repo_path }}
         run: |
           pip install --upgrade pip
-          
+
           if [ "${{ needs.setup.outputs.has-requirements }}" = "true" ]; then
             pip install -r local/requirements.txt
           fi
-          
+
           pip install pytest pytest-cov pytest-html pytest-xdist coverage[toml]
 
       - name: 🧪 Ejecutar tests unitarios con cobertura
         working-directory: ${{ inputs.external_repo_path }}/system_info_app
         run: |
           echo "🧪 Iniciando tests unitarios..."
-          
+
           # Crear directorio para reportes si no existe
           mkdir -p coverage-reports
-          
+
           if [ "${{ needs.setup.outputs.has-tests }}" = "true" ]; then
             pytest -v \
               --cov=. \
@@ -296,18 +296,18 @@ jobs:
         working-directory: ${{ inputs.external_repo_path }}
         run: |
           pip install --upgrade pip
-          
+
           if [ "${{ needs.setup.outputs.has-requirements }}" = "true" ]; then
             pip install -r local/requirements.txt
           fi
-          
+
           pip install pytest
 
       - name: 🔗 Ejecutar pruebas de integración
         working-directory: ${{ inputs.external_repo_path }}
         run: |
           echo "🔗 Iniciando tests de integración..."
-          
+
           if [ -d "system_info_app" ]; then
             pytest system_info_app/ -v --tb=short --color=yes
           else
@@ -401,7 +401,7 @@ jobs:
     timeout-minutes: 15
     needs: [setup, test-unit]
     if: always() && needs.test-unit.result != 'cancelled'
-    
+
     steps:
       - name: 💾 Descargar artefacto del código
         uses: actions/download-artifact@v4
@@ -422,10 +422,10 @@ jobs:
         run: |
           echo "📂 Contenido de coverage-data:"
           ls -la coverage-data/ || echo "⚠️ Directorio vacío o no existe"
-          
+
           # Buscar coverage.xml en cualquier subdirectorio
           COVERAGE_FILE=$(find coverage-data -name "coverage.xml" -type f | head -n 1)
-          
+
           if [ -n "$COVERAGE_FILE" ]; then
             echo "✅ Encontrado: $COVERAGE_FILE"
             
@@ -439,7 +439,7 @@ jobs:
           fi
 
       - name: 🔎 Ejecutar análisis de SonarCloud
-        uses: SonarSource/sonarcloud-github-action@v2
+        uses: SonarSource/sonarcloud-github-action@v6
         with:
           projectBaseDir: ${{ inputs.external_repo_path }}
           args: ${{ inputs.sonar_args }}
@@ -471,18 +471,18 @@ jobs:
           echo "**Repositorio:** ${{ inputs.external_repo }}" >> $GITHUB_STEP_SUMMARY
           echo "**Run ID:** ${{ github.run_id }}" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
-          
+
           echo "## 📋 Resultados" >> $GITHUB_STEP_SUMMARY
           echo "| Check | Estado |" >> $GITHUB_STEP_SUMMARY
           echo "|-------|--------|" >> $GITHUB_STEP_SUMMARY
-          
+
           # Tests Unitarios
           if [ "${{ needs.test-unit.result }}" == "success" ]; then
             echo "| 🧪 Tests Unitarios | ✅ PASSED |" >> $GITHUB_STEP_SUMMARY
           else
             echo "| 🧪 Tests Unitarios | ❌ FAILED |" >> $GITHUB_STEP_SUMMARY
           fi
-          
+
           # Tests de Integración
           if [ "${{ needs.test-integration.result }}" == "success" ]; then
             echo "| 🔗 Tests Integración | ✅ PASSED |" >> $GITHUB_STEP_SUMMARY
@@ -491,14 +491,14 @@ jobs:
           else
             echo "| 🔗 Tests Integración | ❌ FAILED |" >> $GITHUB_STEP_SUMMARY
           fi
-          
+
           # Linting
           if [ "${{ needs.test-lint.result }}" == "success" ]; then
             echo "| 🧹 Linting | ✅ PASSED |" >> $GITHUB_STEP_SUMMARY
           else
             echo "| 🧹 Linting | ⚠️ ISSUES |" >> $GITHUB_STEP_SUMMARY
           fi
-          
+
           # Seguridad
           if [ "${{ needs.security-scan.result }}" == "success" ]; then
             echo "| 🔒 Seguridad | ✅ PASSED |" >> $GITHUB_STEP_SUMMARY
@@ -507,9 +507,9 @@ jobs:
           else
             echo "| 🔒 Seguridad | ❌ FAILED |" >> $GITHUB_STEP_SUMMARY
           fi
-          
+
           echo "" >> $GITHUB_STEP_SUMMARY
-          
+
           # Estado general
           if [ "${{ needs.test-unit.result }}" == "success" ]; then
             echo "## ✅ Quality Gate: PASSED" >> $GITHUB_STEP_SUMMARY
